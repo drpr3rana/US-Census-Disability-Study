@@ -264,6 +264,49 @@ levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 1] <- "Hispanic
 levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 2] <- "Non-Hispanic"
 ```
 
+Recoding the education level and condesing it to 8 categories
+
+```{r}
+cps_2012.dis <- cps_2012.dis %>%
+  mutate(
+    # Ensure numeric codes for comparisons
+    edu_num = as.numeric(as.character(`Education Level`)),
+
+    # Condense categories
+    edu_category = case_when(
+      edu_num %in% c(-1, 31, 32, 33, 34) ~ "Up to 8th Grade",
+      edu_num %in% c(35, 36, 37, 38) ~ "9th–12th (No Diploma)",
+      edu_num == 39 ~ "High School Graduate",
+      edu_num == 40 ~ "Some College, No Degree",
+      edu_num %in% c(41, 42) ~ "Associate's Degree",
+      edu_num == 43 ~ "Bachelor's Degree",
+      edu_num == 44 ~ "Master's Degree",
+      edu_num >= 45 ~ "Professional School or Higher",
+      TRUE ~ NA_character_
+    ),
+
+    # Create ordered factor
+    edu_category = factor(
+      edu_category,
+      levels = c(
+        "Up to 8th Grade",
+        "9th–12th (No Diploma)",
+        "High School Graduate",
+        "Some College, No Degree",
+        "Associate's Degree",
+        "Bachelor's Degree",
+        "Master's Degree",
+        "Professional School or Higher"
+      ),
+      ordered = TRUE
+    )
+  )
+#This is just replacing the old column with the new condensed one
+cps_2012.dis <- cps_2012.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+
+```
 July 2019
 ```{r}
 # Disability Flag
@@ -389,6 +432,50 @@ cps_2019.dis$`Race` <- races
 
 levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 1] <- "Hispanic"
 levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 2] <- "Non-Hispanic"
+
+
+Recoding the education level and condensing it to 8 categories
+```{r}
+cps_2019.dis <- cps_2019.dis %>%
+  mutate(
+    # Ensure numeric codes for comparisons
+    edu_num = as.numeric(as.character(`Education Level`)),
+
+    # Condense categories
+    edu_category = case_when(
+      edu_num %in% c(-1, 31, 32, 33, 34) ~ "Up to 8th Grade",
+      edu_num %in% c(35, 36, 37, 38) ~ "9th–12th (No Diploma)",
+      edu_num == 39 ~ "High School Graduate",
+      edu_num == 40 ~ "Some College, No Degree",
+      edu_num %in% c(41, 42) ~ "Associate's Degree",
+      edu_num == 43 ~ "Bachelor's Degree",
+      edu_num == 44 ~ "Master's Degree",
+      edu_num >= 45 ~ "Professional School or Higher",
+      TRUE ~ NA_character_
+    ),
+
+    # Create ordered factor
+    edu_category = factor(
+      edu_category,
+      levels = c(
+        "Up to 8th Grade",
+        "9th–12th (No Diploma)",
+        "High School Graduate",
+        "Some College, No Degree",
+        "Associate's Degree",
+        "Bachelor's Degree",
+        "Master's Degree",
+        "Professional School or Higher"
+      ),
+      ordered = TRUE
+    )
+  )
+#This is just replacing the old column with the new condensed one
+cps_2019.dis <- cps_2019.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+
+
 ```
 
 July 2021
@@ -518,6 +605,48 @@ levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 1] <- "Hispanic
 levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 2] <- "Non-Hispanic"
 
 # last variable to recode is education
+Recoding the education level and condensing it to 8 categories
+```{r}
+cps_2021.dis <- cps_2021.dis %>%
+  mutate(
+    # Ensure numeric codes for comparisons
+    edu_num = as.numeric(as.character(`Education Level`)),
+
+    # Condense categories
+    edu_category = case_when(
+      edu_num %in% c(-1, 31, 32, 33, 34) ~ "Up to 8th Grade",
+      edu_num %in% c(35, 36, 37, 38) ~ "9th–12th (No Diploma)",
+      edu_num == 39 ~ "High School Graduate",
+      edu_num == 40 ~ "Some College, No Degree",
+      edu_num %in% c(41, 42) ~ "Associate's Degree",
+      edu_num == 43 ~ "Bachelor's Degree",
+      edu_num == 44 ~ "Master's Degree",
+      edu_num >= 45 ~ "Professional School or Higher",
+      TRUE ~ NA_character_
+    ),
+
+    # Create ordered factor
+    edu_category = factor(
+      edu_category,
+      levels = c(
+        "Up to 8th Grade",
+        "9th–12th (No Diploma)",
+        "High School Graduate",
+        "Some College, No Degree",
+        "Associate's Degree",
+        "Bachelor's Degree",
+        "Master's Degree",
+        "Professional School or Higher"
+      ),
+      ordered = TRUE
+    )
+  )
+#This is just replacing the old column with the new condensed one
+cps_2021.dis <- cps_2021.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+
+
 ```
 
 Make a table looking at how factors differ across those in the labor force and those who arent
