@@ -1,0 +1,645 @@
+---
+title: "QBS 181_FinalProject"
+author: "Rhea Sarmah"
+date: "`r Sys.Date()`"
+output: html_document
+---
+Loading packages
+```{r}
+library(car)
+library(tidyverse)
+```
+
+Read in the datasets (no longer using these data due to pulling data using the API, commented out in the event we need it again later for medicare/medicaid data)
+```{r}
+# commenting this out for now
+# 2019 dataset
+#cps2019 <- read.csv('/Users/rheasarmah/Desktop/dartmouth 2025-2026/Fall Quarter 2025/QBS 181_Data Wrangling/QBS 181_Final Project/downloaded datasets/CPS2019.csv')
+#head(cps2019)
+
+# 2021 dataset
+#cps2021 <- read.csv('/Users/rheasarmah/Desktop/dartmouth 2025-2026/Fall Quarter 2025/QBS 181_Data Wrangling/QBS 181_Final Project/downloaded datasets/CPS2021.csv')
+#head(cps2021)
+```
+
+```{r}
+# select columns
+#columns <- c("PEDISREM","PEDISEAR","PEDISPHY","PEDISEYE","PEDISDRS","PEDISOUT","HEFAMINC","PEEDUCA","PEMLR","PRUNEDUR","PRUNTYPE","PESD197","PESD198","PTDTRACE","PESEX","PRTAGE","GEREG")
+
+#cps2019_col <- cps2019[,columns]
+#cps2021_col <- cps2019[,columns]
+
+#dim(cps2019_col)
+#dim(cps2021_col)
+# now we have only the columns we need
+```
+
+Installing cpsR and IPUMS to pull the data
+```{r}
+# uncomment these out if these packages are not installed!
+#install.packages('cpsR')
+#install.packages('ipumsr')
+library(cpsR)
+library(ipumsr)
+
+# set the API key here
+
+
+# checking my API key
+Sys.getenv("CENSUS_API_KEY")
+
+
+# assigning desired column names to a list
+lowercols <- c("prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","prunedur","pruntype",
+               #"hinscaid", # trying a bunch of different variable names for medicare/medicaid
+               #"pesd198", this is medicare and medicaid data which is not included in the CPS by month
+               "ptdtrace", "pehspnon",
+               "pesex","prtage","gereg")
+
+# We are using the data from May 2012, July 2019,  and July 2021, as these time periods were included in the Disability Supplement and are as we described in our project proposal. 
+
+# pulling the CPS data using the get_basic() function within cpsR. This function can only pull basic data from the CPS. This function is unable to pull data from supplements.
+
+# May 2012 
+cps_2012 <- get_basic(year = 2012, month = 5, vars = lowercols)
+head(cps_2012)
+
+# July 2019
+cps_2019 <- get_basic(year = 2019, month = 7, vars = lowercols)
+head(cps_2019)
+
+# July 2021
+cps_2021 <- get_basic(year = 2021, month = 7, vars = lowercols)
+head(cps_2021)
+
+# pulling the CPS data from July 2015, just to see if it works. It does! If we need more time periods for whatever reason, we have access
+# cps_2015 <- get_basic(year = 2015, month = 7, vars = lowercols)
+# head(cps_2015)
+# commenting this out for now, we won't be using the 2015 data and pulling this data takes extra time
+```
+Clean the data! Drop rows with missing data, with the exception of continuous variables, where we can use conditional filtering.
+```{r}
+# 2012
+# first filter for the continuous questions
+cps_2012.clean <- cps_2012 %>%
+  filter(
+    (prempnot == 2 & prunedur >= 0 & pruntype >= 0) | # unemployed individuals
+    (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing data in the unemployed questions
+  )
+# subset based on who has said yes to the prdisflg aka the disability flag, our population of interest
+cps_2012.dis<- subset(cps_2012.clean, cps_2012.clean$prdisflg == 1)
+dim(cps_2012.dis)
+# n = 12727
+
+# 2012
+cps_2019.clean <- cps_2019 %>%
+  filter(
+    (prempnot == 2 & prunedur >= 0 & pruntype >= 0) |# unemployed
+    (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing codes
+  )
+cps_2019.dis<- subset(cps_2019.clean, cps_2019.clean$prdisflg == 1)
+dim(cps_2019.dis)
+# n = 11953
+
+# 2021
+cps_2021.clean <- cps_2021 %>%
+  filter(
+    (prempnot == 2 & prunedur >= 0 & pruntype >= 0) |# unemployed
+    (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing codes
+  )
+cps_2021.dis<- subset(cps_2021.clean, cps_2021.clean$prdisflg == 1)
+dim(cps_2021.dis)
+# n = 11410
+
+# Could be made more efficient with a for loop, but I will work on that later, feel free to optimize
+```
+
+Renaming the columns appropriately
+```{r}
+# convert necessary variables to factors.
+factorcols <- c("prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","pruntype","ptdtrace","pehspnon", "pesex","gereg")
+# note: medicare and medicaid data are not included in the basic CPS data
+
+# this could be made more efficient with a for loop (feel free to optimize)
+cps_2012.dis[factorcols] <- lapply(cps_2012.dis[factorcols], as.factor)
+cps_2019.dis[factorcols] <- lapply(cps_2019.dis[factorcols], as.factor)
+cps_2021.dis[factorcols] <- lapply(cps_2021.dis[factorcols], as.factor)
+
+# rename the columns
+col_rename_map <- c(`Disability Status` = "prdisflg", `Cognitive Difficulty` = "pedisrem", `Hearing Difficulty` = "pedisear", `Ambulatory Difficulty` = "pedisphy", `Visual Difficulty` = "pediseye", `Self-Care Difficulty` = "pedisdrs", `Independent Living Difficulty` = "pedisout",`Household Family Income` = "hefaminc", `Education Level` = "peeduca", `Employment Status` = "prempnot", `Duration of Unemployment` = "prunedur", `Reason for Unemployment` = "pruntype", `Race` = "ptdtrace", `Ethnicity` = "pehspnon", `Sex` = "pesex", `Age` = "prtage", `Geographic Region` = "gereg")
+
+cps_2012.dis <- cps_2012.dis %>% rename(!!!col_rename_map) # the !!! tells tidyverse to supply multiple arguments as a list
+cps_2019.dis <- cps_2019.dis %>% rename(!!!col_rename_map)
+cps_2021.dis <- cps_2021.dis %>% rename(!!!col_rename_map) 
+
+str(cps_2012.dis)
+```
+
+Recoding the values for the variables. (This is going to be extremely messy!!! PLEASE feel free to optimize it!!!! I don't know how to do it more efficiently and actually have it work)
+
+May 2012
+```{r}
+# Disability Flag
+levels(cps_2012.dis$`Disability Status`)[levels(cps_2012.dis$`Disability Status`) == 1] <- "Yes"
+levels(cps_2012.dis$`Disability Status`)[levels(cps_2012.dis$`Disability Status`) == 2] <- "No"
+
+# Cognitive Difficulty 
+levels(cps_2012.dis$`Cognitive Difficulty`)[levels(cps_2012.dis$`Cognitive Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Cognitive Difficulty`)[levels(cps_2012.dis$`Cognitive Difficulty`) == 2] <- "No"
+
+# Hearing Difficulty
+levels(cps_2012.dis$`Hearing Difficulty`)[levels(cps_2012.dis$`Hearing Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Hearing Difficulty`)[levels(cps_2012.dis$`Hearing Difficulty`) == 2] <- "No"
+
+# Ambulatory Difficulty
+levels(cps_2012.dis$`Ambulatory Difficulty`)[levels(cps_2012.dis$`Ambulatory Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Ambulatory Difficulty`)[levels(cps_2012.dis$`Ambulatory Difficulty`) == 2] <- "No"
+
+# Visual Difficulty
+levels(cps_2012.dis$`Visual Difficulty`)[levels(cps_2012.dis$`Visual Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Visual Difficulty`)[levels(cps_2012.dis$`Visual Difficulty`) == 2] <- "No"
+
+# Self-Care Difficulty 
+levels(cps_2012.dis$`Self-Care Difficulty`)[levels(cps_2012.dis$`Self-Care Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Self-Care Difficulty`)[levels(cps_2012.dis$`Self-Care Difficulty`) == 2] <- "No"
+
+# Independent Living Difficulty
+levels(cps_2012.dis$`Independent Living Difficulty`)[levels(cps_2012.dis$`Independent Living Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Independent Living Difficulty`)[levels(cps_2012.dis$`Independent Living Difficulty`) == 2] <- "No"
+
+# Household Income
+# Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
+hf_income <- cps_2012.dis$`Household Family Income`
+levels(hf_income) <- c(
+  "$0 to $5,000",
+  "$5,000 to $9,999",
+  "$5,000 to $9,999",           # combining 2 and 3
+  "$10,000 to $14,999",
+  "$10,000 to $14,999",         # combining 4 and 5
+  "$15,000 to $19,999",
+  "$20,000 to $24,999",
+  "$25,000 to $29,999",
+  "$30,000 to $34,999",
+  "$35,000 to $39,999",
+  "$40,000 to $49,999",
+  "$50,000 to $74,999",
+  "$50,000 to $74,999",         # combining 12 and 13
+  "$75,000 to $99,999",
+  "$100,000 to $149,999",
+  "$150,000 and Over"
+)
+cps_2012.dis$`Household Family Income` <- hf_income
+
+# Sex
+levels(cps_2012.dis$Sex)[levels(cps_2012.dis$Sex) == 1] <- "Male"
+levels(cps_2012.dis$Sex)[levels(cps_2012.dis$Sex) == 2] <- "Female"
+
+# Employment Status
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 1] <- "Employed"
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 2] <- "Unemployed"
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 3] <- "Not in Labor Force" # not in labor force due to it being discouraged
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 4] <- "Not in Labor Force" # not in labor force for other reasons
+
+# Geographic Region
+geog_region <- cps_2012.dis$`Geographic Region`
+levels(geog_region) <- c(
+"Northeast",
+"Midwest",
+"South",
+"West"
+)
+cps_2012.dis$`Geographic Region` <- geog_region
+
+# Duration for Unemployment
+cps_2012.dis$`Duration of Unemployment`[cps_2012.dis$`Duration of Unemployment` == -1] <- NA 
+# converting -1 to NA since non-unemployed people did not answer
+
+# Reason for Unemployment
+reason_unemp <- cps_2012.dis$`Reason for Unemployment`
+levels(reason_unemp) <- c(
+NA,
+"Lost Job",
+"Lost Job",
+"Temporary Job Ended",
+"Left Job",
+"Re-entrant",
+"New-entrant"
+)
+cps_2012.dis$`Reason for Unemployment` <- reason_unemp
+
+# Race
+# Aggregating to White, Black, American Indian/Native American, Non-white Hispanic, Asian, and Mixed Race
+races <- cps_2012.dis$`Race`
+levels(races) <- c(
+"White",
+"Black",
+"American Indian, Alaskan Native",
+"Asian",
+"Hawaiian/Pacific Islander",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race" # this is very long
+)
+cps_2012.dis$`Race` <- races
+
+levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 1] <- "Hispanic"
+levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 2] <- "Non-Hispanic"
+```
+
+July 2019
+```{r}
+# Disability Flag
+levels(cps_2019.dis$`Disability Status`)[levels(cps_2019.dis$`Disability Status`) == 1] <- "Yes"
+levels(cps_2019.dis$`Disability Status`)[levels(cps_2019.dis$`Disability Status`) == 2] <- "No"
+
+# Cognitive Difficulty 
+levels(cps_2019.dis$`Cognitive Difficulty`)[levels(cps_2019.dis$`Cognitive Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Cognitive Difficulty`)[levels(cps_2019.dis$`Cognitive Difficulty`) == 2] <- "No"
+
+# Hearing Difficulty
+levels(cps_2019.dis$`Hearing Difficulty`)[levels(cps_2019.dis$`Hearing Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Hearing Difficulty`)[levels(cps_2019.dis$`Hearing Difficulty`) == 2] <- "No"
+
+# Ambulatory Difficulty
+levels(cps_2019.dis$`Ambulatory Difficulty`)[levels(cps_2019.dis$`Ambulatory Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Ambulatory Difficulty`)[levels(cps_2019.dis$`Ambulatory Difficulty`) == 2] <- "No"
+
+# Visual Difficulty
+levels(cps_2019.dis$`Visual Difficulty`)[levels(cps_2019.dis$`Visual Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Visual Difficulty`)[levels(cps_2019.dis$`Visual Difficulty`) == 2] <- "No"
+
+# Self-Care Difficulty 
+levels(cps_2019.dis$`Self-Care Difficulty`)[levels(cps_2019.dis$`Self-Care Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Self-Care Difficulty`)[levels(cps_2019.dis$`Self-Care Difficulty`) == 2] <- "No"
+
+# Independent Living Difficulty
+levels(cps_2019.dis$`Independent Living Difficulty`)[levels(cps_2019.dis$`Independent Living Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Independent Living Difficulty`)[levels(cps_2019.dis$`Independent Living Difficulty`) == 2] <- "No"
+
+# Household Income
+# Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
+hf_income <- cps_2019.dis$`Household Family Income`
+levels(hf_income) <- c(
+  "$0 to $5,000",
+  "$5,000 to $9,999",
+  "$5,000 to $9,999",           # combining 2 and 3
+  "$10,000 to $14,999",
+  "$10,000 to $14,999",         # combining 4 and 5
+  "$15,000 to $19,999",
+  "$20,000 to $24,999",
+  "$25,000 to $29,999",
+  "$30,000 to $34,999",
+  "$35,000 to $39,999",
+  "$40,000 to $49,999",
+  "$50,000 to $74,999",
+  "$50,000 to $74,999",         # combining 12 and 13
+  "$75,000 to $99,999",
+  "$100,000 to $149,999",
+  "$150,000 and Over"
+)
+cps_2019.dis$`Household Family Income` <- hf_income
+
+# Sex
+levels(cps_2019.dis$Sex)[levels(cps_2019.dis$Sex) == 1] <- "Male"
+levels(cps_2019.dis$Sex)[levels(cps_2019.dis$Sex) == 2] <- "Female"
+
+# Employment Status
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 1] <- "Employed"
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 2] <- "Unemployed"
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 3] <- "Not in Labor Force" # not in labor force due to it being discouraged
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 4] <- "Not in Labor Force" # not in labor force for other reasons
+
+# Geographic Region
+geog_region <- cps_2019.dis$`Geographic Region`
+levels(geog_region) <- c(
+"Northeast",
+"Midwest",
+"South",
+"West"
+)
+cps_2019.dis$`Geographic Region` <- geog_region
+
+# Duration for Unemployment
+cps_2019.dis$`Duration of Unemployment`[cps_2019.dis$`Duration of Unemployment` == -1] <- NA 
+# converting -1 to NA since non-unemployed people did not answer
+
+# Reason for Unemployment
+reason_unemp <- cps_2019.dis$`Reason for Unemployment`
+levels(reason_unemp) <- c(
+NA,
+"Lost Job",
+"Lost Job",
+"Temporary Job Ended",
+"Left Job",
+"Re-entrant",
+"New-entrant"
+)
+cps_2019.dis$`Reason for Unemployment` <- reason_unemp
+
+# Race
+# Aggregating to White, Black, American Indian/Native American, Non-white Hispanic, Asian, and Mixed Race
+races <- cps_2019.dis$`Race`
+levels(races) <- c(
+"White",
+"Black",
+"American Indian, Alaskan Native",
+"Asian",
+"Hawaiian/Pacific Islander",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race"
+)
+cps_2019.dis$`Race` <- races
+
+levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 1] <- "Hispanic"
+levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 2] <- "Non-Hispanic"
+```
+
+July 2021
+```{r}
+# Disability Flag
+levels(cps_2021.dis$`Disability Status`)[levels(cps_2021.dis$`Disability Status`) == 1] <- "Yes"
+levels(cps_2021.dis$`Disability Status`)[levels(cps_2021.dis$`Disability Status`) == 2] <- "No"
+
+# Cognitive Difficulty 
+levels(cps_2021.dis$`Cognitive Difficulty`)[levels(cps_2021.dis$`Cognitive Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Cognitive Difficulty`)[levels(cps_2021.dis$`Cognitive Difficulty`) == 2] <- "No"
+
+# Hearing Difficulty
+levels(cps_2021.dis$`Hearing Difficulty`)[levels(cps_2021.dis$`Hearing Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Hearing Difficulty`)[levels(cps_2021.dis$`Hearing Difficulty`) == 2] <- "No"
+
+# Ambulatory Difficulty
+levels(cps_2021.dis$`Ambulatory Difficulty`)[levels(cps_2021.dis$`Ambulatory Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Ambulatory Difficulty`)[levels(cps_2021.dis$`Ambulatory Difficulty`) == 2] <- "No"
+
+# Visual Difficulty
+levels(cps_2021.dis$`Visual Difficulty`)[levels(cps_2021.dis$`Visual Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Visual Difficulty`)[levels(cps_2021.dis$`Visual Difficulty`) == 2] <- "No"
+
+# Self-Care Difficulty 
+levels(cps_2021.dis$`Self-Care Difficulty`)[levels(cps_2021.dis$`Self-Care Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Self-Care Difficulty`)[levels(cps_2021.dis$`Self-Care Difficulty`) == 2] <- "No"
+
+# Independent Living Difficulty
+levels(cps_2021.dis$`Independent Living Difficulty`)[levels(cps_2021.dis$`Independent Living Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Independent Living Difficulty`)[levels(cps_2021.dis$`Independent Living Difficulty`) == 2] <- "No"
+
+# Household Income
+# Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
+hf_income <- cps_2021.dis$`Household Family Income`
+levels(hf_income) <- c(
+  "$0 to $5,000",
+  "$5,000 to $9,999",
+  "$5,000 to $9,999",           # combining 2 and 3
+  "$10,000 to $14,999",
+  "$10,000 to $14,999",         # combining 4 and 5
+  "$15,000 to $19,999",
+  "$20,000 to $24,999",
+  "$25,000 to $29,999",
+  "$30,000 to $34,999",
+  "$35,000 to $39,999",
+  "$40,000 to $49,999",
+  "$50,000 to $74,999",
+  "$50,000 to $74,999",         # combining 12 and 13
+  "$75,000 to $99,999",
+  "$100,000 to $149,999",
+  "$150,000 and Over"
+)
+cps_2021.dis$`Household Family Income` <- hf_income
+
+# Sex
+levels(cps_2021.dis$Sex)[levels(cps_2021.dis$Sex) == 1] <- "Male"
+levels(cps_2021.dis$Sex)[levels(cps_2021.dis$Sex) == 2] <- "Female"
+
+# Employment Status
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 1] <- "Employed"
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 2] <- "Unemployed"
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 3] <- "Not in Labor Force" # not in labor force due to it being discouraged
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 4] <- "Not in Labor Force" # not in labor force for other reasons
+
+# Geographic Region
+geog_region <- cps_2021.dis$`Geographic Region`
+levels(geog_region) <- c(
+"Northeast",
+"Midwest",
+"South",
+"West"
+)
+cps_2021.dis$`Geographic Region` <- geog_region
+
+# Duration for Unemployment
+cps_2021.dis$`Duration of Unemployment`[cps_2021.dis$`Duration of Unemployment` == -1] <- NA 
+# converting -1 to NA since non-unemployed people did not answer
+
+# Reason for Unemployment
+reason_unemp <- cps_2021.dis$`Reason for Unemployment`
+levels(reason_unemp) <- c(
+NA,
+"Lost Job",
+"Lost Job",
+"Temporary Job Ended",
+"Left Job",
+"Re-entrant",
+"New-entrant"
+)
+cps_2021.dis$`Reason for Unemployment` <- reason_unemp
+
+# Race
+# Aggregating to White, Black, American Indian/Native American, Non-white Hispanic, Asian, and Mixed Race
+races <- cps_2021.dis$`Race`
+levels(races) <- c(
+"White",
+"Black",
+"American Indian, Alaskan Native",
+"Asian",
+"Hawaiian/Pacific Islander",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race"
+)
+cps_2021.dis$`Race` <- races
+
+levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 1] <- "Hispanic"
+levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 2] <- "Non-Hispanic"
+
+# last variable to recode is education
+```
+
+Make a table looking at how factors differ across those in the labor force and those who arent
+```{r, plot}
+library(table1)
+# maybe we can combine all disability columns into 1? no, this loses information about participants with multiple disabilities
+
+# function from https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html to calculate and add p-values
+# modified to include ANOVA using the help of Dartmouth ChatGPT 4.1 model
+pvalue <- function(x, ...) {
+# decide if the variable is categorical (factor/character) before unlisting
+is_cat <- any(sapply(x, function(v) is.factor(v) || is.character(v)))
+
+# build response y while preserving factor levels if categorical
+if (is_cat) {
+y <- factor(unlist(lapply(x, as.character)))
+} else {
+y <- unlist(x)
+}
+
+# group labels
+g <- factor(rep(seq_along(x), times = sapply(x, length)))
+
+# remove missing values pairwise
+ok <- complete.cases(y, g)
+y <- y[ok]; g <- g[ok]
+
+# compute p-value
+if (!is_cat) {
+# numeric outcome: t-test for 2 groups, Welch one-way ANOVA for >2
+if (nlevels(g) > 2) {
+p <- oneway.test(y ~ g)$p.value
+} else {
+p <- t.test(y ~ g)$p.value
+}
+} else {
+# categorical outcome: chi-squared test of independence
+if (nlevels(y) < 2 || nlevels(g) < 2) {
+p <- NA_real_
+} else {
+p <- suppressWarnings(chisq.test(table(y, g))$p.value)
+}
+}
+
+# format p-value for HTML display using regex
+c("", sub("<", "&lt;", format.pval(p, digits = 3, eps = 0.001)))
+}
+
+# 2012 data
+empdistable.2012 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2012.dis,
+                   extra.col=c(`P-value`=pvalue),
+                   caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, May 2012", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
+empdistable.2012
+
+# 2019 data
+empdistable.2019 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2019.dis,
+                   extra.col=c(`P-value`=pvalue),
+                   caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, July 2019", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
+empdistable.2019
+
+# 2021 data
+empdistable.2021 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2021.dis,
+                   extra.col=c(`P-value`=pvalue),
+                   caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, July 2021", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
+empdistable.2021
+
+# Everything seems to have a p-value < 0.01 other than visual difficulty; maybe something is wrong with the p-value function/how the variable is coded. I'll check that later
+# still needs education to be recoded
+```
+
+Visualizing the distribution of unemployed individuals by disability type, 2012
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(viridis)
+
+# The following data was written using AI, I plan to rewrite this later
+
+employment_var <- "Employment Status"
+disability_vars <- c(
+  "Disability Status",
+  "Cognitive Difficulty",
+  "Hearing Difficulty",
+  "Ambulatory Difficulty",
+  "Visual Difficulty",
+  "Self-Care Difficulty"
+)
+
+# select the needed columns
+df <- cps_2012.dis %>%
+  select(all_of(c(employment_var, disability_vars)))
+
+# reshaping the data using pivot longer
+df_long <- df %>%
+  pivot_longer(
+    cols = all_of(disability_vars),
+    names_to = "Disability_Type",
+    values_to = "Has_Disability"
+  )
+
+# Filter to only those with the disability (you can keep "No" if you want comparisons)
+df_long_yes <- df_long %>% filter(Has_Disability == "Yes")
+
+# Calculate proportions of employment status by disability type
+plot_data <- df_long_yes %>%
+  group_by(Disability_Type, !!sym(employment_var)) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(Disability_Type) %>%
+  mutate(proportion = count / sum(count))
+
+ggplot(plot_data, aes(x = Disability_Type, y = proportion, fill = !!sym(employment_var))) +
+  geom_col(position = "fill") +  # stacked bar plot but subject to change because values are difficult to read
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    x = "Disability Type",
+    y = "Proportion",
+    fill = "Employment Status",
+    title = "Employment Status by Disability Type, May 2012"
+  ) +
+  scale_fill_manual(values = viridis(n = 3, direction = -1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
