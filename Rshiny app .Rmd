@@ -1,0 +1,2000 @@
+---
+title: "Rshiny approach"
+output: html_document
+date: "2025-11-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+
+
+
+
+```{r}
+library(car)
+library(tidyverse)
+```
+
+Read in the datasets (no longer using these data due to pulling data using the API, commented out in the event we need it again later for medicare/medicaid data)
+```{r}
+# commenting this out for now
+# 2019 dataset
+#cps2019 <- read.csv('/Users/rheasarmah/Desktop/dartmouth 2025-2026/Fall Quarter 2025/QBS 181_Data Wrangling/QBS 181_Final Project/downloaded datasets/CPS2019.csv')
+#head(cps2019)
+
+# 2021 dataset
+#cps2021 <- read.csv('/Users/rheasarmah/Desktop/dartmouth 2025-2026/Fall Quarter 2025/QBS 181_Data Wrangling/QBS 181_Final Project/downloaded datasets/CPS2021.csv')
+#head(cps2021)
+```
+
+```{r}
+# select columns
+#columns <- c("PEDISREM","PEDISEAR","PEDISPHY","PEDISEYE","PEDISDRS","PEDISOUT","HEFAMINC","PEEDUCA","PEMLR","PRUNEDUR","PRUNTYPE","PESD197","PESD198","PTDTRACE","PESEX","PRTAGE","GEREG")
+
+#cps2019_col <- cps2019[,columns]
+#cps2021_col <- cps2019[,columns]
+
+#dim(cps2019_col)
+#dim(cps2021_col)
+# now we have only the columns we need
+```
+
+Installing cpsR and IPUMS to pull the data
+```{r}
+# uncomment these out if these packages are not installed!
+#install.packages('cpsR')
+#install.packages('ipumsr')
+library(cpsR)
+library(ipumsr)
+
+# set the API key here
+
+
+# checking my API key
+Sys.getenv("CENSUS_API_KEY")
+
+
+# assigning desired column names to a list
+lowercols <- c("prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","prunedur","pruntype",
+              #"hinscaid", # trying a bunch of different variable names for medicare/medicaid
+              #"pesd198", this is medicare and medicaid data which is not included in the CPS by month
+              "ptdtrace", "pehspnon",
+              "pesex","prtage","gereg")
+
+# We are using the data from May 2012, July 2019,  and July 2021, as these time periods were included in the Disability Supplement and are as we described in our project proposal. 
+
+# pulling the CPS data using the get_basic() function within cpsR. This function can only pull basic data from the CPS. This function is unable to pull data from supplements.
+
+# May 2012 
+cps_2012 <- get_basic(year = 2012, month = 5, vars = lowercols)
+head(cps_2012)
+
+# July 2019
+cps_2019 <- get_basic(year = 2019, month = 7, vars = lowercols)
+head(cps_2019)
+
+# July 2021
+cps_2021 <- get_basic(year = 2021, month = 7, vars = lowercols)
+head(cps_2021)
+
+# pulling the CPS data from July 2015, just to see if it works. It does! If we need more time periods for whatever reason, we have access
+# cps_2015 <- get_basic(year = 2015, month = 7, vars = lowercols)
+# head(cps_2015)
+# commenting this out for now, we won't be using the 2015 data and pulling this data takes extra time
+```
+Clean the data! Drop rows with missing data, with the exception of continuous variables, where we can use conditional filtering.
+```{r}
+# 2012
+# first filter for the continuous questions
+cps_2012.clean <- cps_2012 %>%
+ filter(
+   (prempnot == 2 & prunedur >= 0 & pruntype >= 0) | # unemployed individuals
+   (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing data in the unemployed questions
+ )
+# subset based on who has said yes to the prdisflg aka the disability flag, our population of interest
+cps_2012.dis<- subset(cps_2012.clean, cps_2012.clean$prdisflg == 1)
+dim(cps_2012.dis)
+# n = 12727
+
+# 2012
+cps_2019.clean <- cps_2019 %>%
+ filter(
+   (prempnot == 2 & prunedur >= 0 & pruntype >= 0) |# unemployed
+   (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing codes
+ )
+cps_2019.dis<- subset(cps_2019.clean, cps_2019.clean$prdisflg == 1)
+dim(cps_2019.dis)
+# n = 11953
+
+# 2021
+cps_2021.clean <- cps_2021 %>%
+ filter(
+   (prempnot == 2 & prunedur >= 0 & pruntype >= 0) |# unemployed
+   (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing codes
+ )
+cps_2021.dis<- subset(cps_2021.clean, cps_2021.clean$prdisflg == 1)
+dim(cps_2021.dis)
+# n = 11410
+
+# Could be made more efficient with a for loop, but I will work on that later, feel free to optimize
+```
+
+Renaming the columns appropriately
+```{r}
+# convert necessary variables to factors.
+factorcols <- c("prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","pruntype","ptdtrace","pehspnon", "pesex","gereg")
+# note: medicare and medicaid data are not included in the basic CPS data
+
+# this could be made more efficient with a for loop (feel free to optimize)
+cps_2012.dis[factorcols] <- lapply(cps_2012.dis[factorcols], as.factor)
+cps_2019.dis[factorcols] <- lapply(cps_2019.dis[factorcols], as.factor)
+cps_2021.dis[factorcols] <- lapply(cps_2021.dis[factorcols], as.factor)
+
+# rename the columns
+col_rename_map <- c(`Disability Status` = "prdisflg", `Cognitive Difficulty` = "pedisrem", `Hearing Difficulty` = "pedisear", `Ambulatory Difficulty` = "pedisphy", `Visual Difficulty` = "pediseye", `Self-Care Difficulty` = "pedisdrs", `Independent Living Difficulty` = "pedisout",`Household Family Income` = "hefaminc", `Education Level` = "peeduca", `Employment Status` = "prempnot", `Duration of Unemployment` = "prunedur", `Reason for Unemployment` = "pruntype", `Race` = "ptdtrace", `Ethnicity` = "pehspnon", `Sex` = "pesex", `Age` = "prtage", `Geographic Region` = "gereg")
+
+cps_2012.dis <- cps_2012.dis %>% rename(!!!col_rename_map) # the !!! tells tidyverse to supply multiple arguments as a list
+cps_2019.dis <- cps_2019.dis %>% rename(!!!col_rename_map)
+cps_2021.dis <- cps_2021.dis %>% rename(!!!col_rename_map) 
+
+str(cps_2012.dis)
+```
+
+Recoding the values for the variables. (This is going to be extremely messy!!! PLEASE feel free to optimize it!!!! I don't know how to do it more efficiently and actually have it work)
+
+May 2012
+```{r}
+# Disability Flag
+levels(cps_2012.dis$`Disability Status`)[levels(cps_2012.dis$`Disability Status`) == 1] <- "Yes"
+levels(cps_2012.dis$`Disability Status`)[levels(cps_2012.dis$`Disability Status`) == 2] <- "No"
+
+# Cognitive Difficulty 
+levels(cps_2012.dis$`Cognitive Difficulty`)[levels(cps_2012.dis$`Cognitive Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Cognitive Difficulty`)[levels(cps_2012.dis$`Cognitive Difficulty`) == 2] <- "No"
+
+# Hearing Difficulty
+levels(cps_2012.dis$`Hearing Difficulty`)[levels(cps_2012.dis$`Hearing Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Hearing Difficulty`)[levels(cps_2012.dis$`Hearing Difficulty`) == 2] <- "No"
+
+# Ambulatory Difficulty
+levels(cps_2012.dis$`Ambulatory Difficulty`)[levels(cps_2012.dis$`Ambulatory Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Ambulatory Difficulty`)[levels(cps_2012.dis$`Ambulatory Difficulty`) == 2] <- "No"
+
+# Visual Difficulty
+levels(cps_2012.dis$`Visual Difficulty`)[levels(cps_2012.dis$`Visual Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Visual Difficulty`)[levels(cps_2012.dis$`Visual Difficulty`) == 2] <- "No"
+
+# Self-Care Difficulty 
+levels(cps_2012.dis$`Self-Care Difficulty`)[levels(cps_2012.dis$`Self-Care Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Self-Care Difficulty`)[levels(cps_2012.dis$`Self-Care Difficulty`) == 2] <- "No"
+
+# Independent Living Difficulty
+levels(cps_2012.dis$`Independent Living Difficulty`)[levels(cps_2012.dis$`Independent Living Difficulty`) == 1] <- "Yes"
+levels(cps_2012.dis$`Independent Living Difficulty`)[levels(cps_2012.dis$`Independent Living Difficulty`) == 2] <- "No"
+
+# Household Income
+# Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
+hf_income <- cps_2012.dis$`Household Family Income`
+levels(hf_income) <- c(
+ "$0 to $5,000",
+ "$5,000 to $9,999",
+ "$5,000 to $9,999",           # combining 2 and 3
+ "$10,000 to $14,999",
+ "$10,000 to $14,999",         # combining 4 and 5
+ "$15,000 to $19,999",
+ "$20,000 to $24,999",
+ "$25,000 to $29,999",
+ "$30,000 to $34,999",
+ "$35,000 to $39,999",
+ "$40,000 to $49,999",
+ "$50,000 to $74,999",
+ "$50,000 to $74,999",         # combining 12 and 13
+ "$75,000 to $99,999",
+ "$100,000 to $149,999",
+ "$150,000 and Over"
+)
+cps_2012.dis$`Household Family Income` <- hf_income
+
+# Sex
+levels(cps_2012.dis$Sex)[levels(cps_2012.dis$Sex) == 1] <- "Male"
+levels(cps_2012.dis$Sex)[levels(cps_2012.dis$Sex) == 2] <- "Female"
+
+# Employment Status
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 1] <- "Employed"
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 2] <- "Unemployed"
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 3] <- "Not in Labor Force" # not in labor force due to it being discouraged
+levels(cps_2012.dis$`Employment Status`)[levels(cps_2012.dis$`Employment Status`) == 4] <- "Not in Labor Force" # not in labor force for other reasons
+
+# Geographic Region
+geog_region <- cps_2012.dis$`Geographic Region`
+levels(geog_region) <- c(
+"Northeast",
+"Midwest",
+"South",
+"West"
+)
+cps_2012.dis$`Geographic Region` <- geog_region
+
+# Duration for Unemployment
+cps_2012.dis$`Duration of Unemployment`[cps_2012.dis$`Duration of Unemployment` == -1] <- NA 
+# converting -1 to NA since non-unemployed people did not answer
+
+# Reason for Unemployment
+reason_unemp <- cps_2012.dis$`Reason for Unemployment`
+levels(reason_unemp) <- c(
+NA,
+"Lost Job",
+"Lost Job",
+"Temporary Job Ended",
+"Left Job",
+"Re-entrant",
+"New-entrant"
+)
+cps_2012.dis$`Reason for Unemployment` <- reason_unemp
+
+# Race
+# Aggregating to White, Black, American Indian/Native American, Non-white Hispanic, Asian, and Mixed Race
+races <- cps_2012.dis$`Race`
+levels(races) <- c(
+"White",
+"Black",
+"American Indian, Alaskan Native",
+"Asian",
+"Hawaiian/Pacific Islander",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race" # this is very long
+)
+cps_2012.dis$`Race` <- races
+
+levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 1] <- "Hispanic"
+levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 2] <- "Non-Hispanic"
+```
+
+Recoding the education level and condesing it to 8 categories
+
+```{r}
+cps_2012.dis <- cps_2012.dis %>%
+  mutate(
+    # Ensure numeric codes for comparisons
+    edu_num = as.numeric(as.character(`Education Level`)),
+
+    # Condense categories
+    edu_category = case_when(
+      edu_num %in% c(-1, 31, 32, 33, 34) ~ "Up to 8th Grade",
+      edu_num %in% c(35, 36, 37, 38) ~ "9th–12th (No Diploma)",
+      edu_num == 39 ~ "High School Graduate",
+      edu_num == 40 ~ "Some College, No Degree",
+      edu_num %in% c(41, 42) ~ "Associate's Degree",
+      edu_num == 43 ~ "Bachelor's Degree",
+      edu_num == 44 ~ "Master's Degree",
+      edu_num >= 45 ~ "Professional School or Higher",
+      TRUE ~ NA_character_
+    ),
+
+    # Create ordered factor
+    edu_category = factor(
+      edu_category,
+      levels = c(
+        "Up to 8th Grade",
+        "9th–12th (No Diploma)",
+        "High School Graduate",
+        "Some College, No Degree",
+        "Associate's Degree",
+        "Bachelor's Degree",
+        "Master's Degree",
+        "Professional School or Higher"
+      ),
+      ordered = TRUE
+    )
+  )
+#This is just replacing the old column with the new condensed one
+cps_2012.dis <- cps_2012.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+
+```
+July 2019
+```{r}
+# Disability Flag
+levels(cps_2019.dis$`Disability Status`)[levels(cps_2019.dis$`Disability Status`) == 1] <- "Yes"
+levels(cps_2019.dis$`Disability Status`)[levels(cps_2019.dis$`Disability Status`) == 2] <- "No"
+
+# Cognitive Difficulty 
+levels(cps_2019.dis$`Cognitive Difficulty`)[levels(cps_2019.dis$`Cognitive Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Cognitive Difficulty`)[levels(cps_2019.dis$`Cognitive Difficulty`) == 2] <- "No"
+
+# Hearing Difficulty
+levels(cps_2019.dis$`Hearing Difficulty`)[levels(cps_2019.dis$`Hearing Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Hearing Difficulty`)[levels(cps_2019.dis$`Hearing Difficulty`) == 2] <- "No"
+
+# Ambulatory Difficulty
+levels(cps_2019.dis$`Ambulatory Difficulty`)[levels(cps_2019.dis$`Ambulatory Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Ambulatory Difficulty`)[levels(cps_2019.dis$`Ambulatory Difficulty`) == 2] <- "No"
+
+# Visual Difficulty
+levels(cps_2019.dis$`Visual Difficulty`)[levels(cps_2019.dis$`Visual Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Visual Difficulty`)[levels(cps_2019.dis$`Visual Difficulty`) == 2] <- "No"
+
+# Self-Care Difficulty 
+levels(cps_2019.dis$`Self-Care Difficulty`)[levels(cps_2019.dis$`Self-Care Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Self-Care Difficulty`)[levels(cps_2019.dis$`Self-Care Difficulty`) == 2] <- "No"
+
+# Independent Living Difficulty
+levels(cps_2019.dis$`Independent Living Difficulty`)[levels(cps_2019.dis$`Independent Living Difficulty`) == 1] <- "Yes"
+levels(cps_2019.dis$`Independent Living Difficulty`)[levels(cps_2019.dis$`Independent Living Difficulty`) == 2] <- "No"
+
+# Household Income
+# Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
+hf_income <- cps_2019.dis$`Household Family Income`
+levels(hf_income) <- c(
+ "$0 to $5,000",
+ "$5,000 to $9,999",
+ "$5,000 to $9,999",           # combining 2 and 3
+ "$10,000 to $14,999",
+ "$10,000 to $14,999",         # combining 4 and 5
+ "$15,000 to $19,999",
+ "$20,000 to $24,999",
+ "$25,000 to $29,999",
+ "$30,000 to $34,999",
+ "$35,000 to $39,999",
+ "$40,000 to $49,999",
+ "$50,000 to $74,999",
+ "$50,000 to $74,999",         # combining 12 and 13
+ "$75,000 to $99,999",
+ "$100,000 to $149,999",
+ "$150,000 and Over"
+)
+cps_2019.dis$`Household Family Income` <- hf_income
+
+# Sex
+levels(cps_2019.dis$Sex)[levels(cps_2019.dis$Sex) == 1] <- "Male"
+levels(cps_2019.dis$Sex)[levels(cps_2019.dis$Sex) == 2] <- "Female"
+
+# Employment Status
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 1] <- "Employed"
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 2] <- "Unemployed"
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 3] <- "Not in Labor Force" # not in labor force due to it being discouraged
+levels(cps_2019.dis$`Employment Status`)[levels(cps_2019.dis$`Employment Status`) == 4] <- "Not in Labor Force" # not in labor force for other reasons
+
+# Geographic Region
+geog_region <- cps_2019.dis$`Geographic Region`
+levels(geog_region) <- c(
+"Northeast",
+"Midwest",
+"South",
+"West"
+)
+cps_2019.dis$`Geographic Region` <- geog_region
+
+# Duration for Unemployment
+cps_2019.dis$`Duration of Unemployment`[cps_2019.dis$`Duration of Unemployment` == -1] <- NA 
+# converting -1 to NA since non-unemployed people did not answer
+
+# Reason for Unemployment
+reason_unemp <- cps_2019.dis$`Reason for Unemployment`
+levels(reason_unemp) <- c(
+NA,
+"Lost Job",
+"Lost Job",
+"Temporary Job Ended",
+"Left Job",
+"Re-entrant",
+"New-entrant"
+)
+cps_2019.dis$`Reason for Unemployment` <- reason_unemp
+
+# Race
+# Aggregating to White, Black, American Indian/Native American, Non-white Hispanic, Asian, and Mixed Race
+races <- cps_2019.dis$`Race`
+levels(races) <- c(
+"White",
+"Black",
+"American Indian, Alaskan Native",
+"Asian",
+"Hawaiian/Pacific Islander",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race"
+)
+cps_2019.dis$`Race` <- races
+
+levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 1] <- "Hispanic"
+levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 2] <- "Non-Hispanic"
+
+
+#Recoding the education level and condensing it to 8 categories
+```
+
+
+```{r}
+cps_2019.dis <- cps_2019.dis %>%
+  mutate(
+    # Ensure numeric codes for comparisons
+    edu_num = as.numeric(as.character(`Education Level`)),
+
+    # Condense categories
+    edu_category = case_when(
+      edu_num %in% c(-1, 31, 32, 33, 34) ~ "Up to 8th Grade",
+      edu_num %in% c(35, 36, 37, 38) ~ "9th–12th (No Diploma)",
+      edu_num == 39 ~ "High School Graduate",
+      edu_num == 40 ~ "Some College, No Degree",
+      edu_num %in% c(41, 42) ~ "Associate's Degree",
+      edu_num == 43 ~ "Bachelor's Degree",
+      edu_num == 44 ~ "Master's Degree",
+      edu_num >= 45 ~ "Professional School or Higher",
+      TRUE ~ NA_character_
+    ),
+
+    # Create ordered factor
+    edu_category = factor(
+      edu_category,
+      levels = c(
+        "Up to 8th Grade",
+        "9th–12th (No Diploma)",
+        "High School Graduate",
+        "Some College, No Degree",
+        "Associate's Degree",
+        "Bachelor's Degree",
+        "Master's Degree",
+        "Professional School or Higher"
+      ),
+      ordered = TRUE
+    )
+  )
+#This is just replacing the old column with the new condensed one
+cps_2019.dis <- cps_2019.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+
+```
+
+July 2021
+```{r}
+# Disability Flag
+levels(cps_2021.dis$`Disability Status`)[levels(cps_2021.dis$`Disability Status`) == 1] <- "Yes"
+levels(cps_2021.dis$`Disability Status`)[levels(cps_2021.dis$`Disability Status`) == 2] <- "No"
+
+# Cognitive Difficulty 
+levels(cps_2021.dis$`Cognitive Difficulty`)[levels(cps_2021.dis$`Cognitive Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Cognitive Difficulty`)[levels(cps_2021.dis$`Cognitive Difficulty`) == 2] <- "No"
+
+# Hearing Difficulty
+levels(cps_2021.dis$`Hearing Difficulty`)[levels(cps_2021.dis$`Hearing Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Hearing Difficulty`)[levels(cps_2021.dis$`Hearing Difficulty`) == 2] <- "No"
+
+# Ambulatory Difficulty
+levels(cps_2021.dis$`Ambulatory Difficulty`)[levels(cps_2021.dis$`Ambulatory Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Ambulatory Difficulty`)[levels(cps_2021.dis$`Ambulatory Difficulty`) == 2] <- "No"
+
+# Visual Difficulty
+levels(cps_2021.dis$`Visual Difficulty`)[levels(cps_2021.dis$`Visual Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Visual Difficulty`)[levels(cps_2021.dis$`Visual Difficulty`) == 2] <- "No"
+
+# Self-Care Difficulty 
+levels(cps_2021.dis$`Self-Care Difficulty`)[levels(cps_2021.dis$`Self-Care Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Self-Care Difficulty`)[levels(cps_2021.dis$`Self-Care Difficulty`) == 2] <- "No"
+
+# Independent Living Difficulty
+levels(cps_2021.dis$`Independent Living Difficulty`)[levels(cps_2021.dis$`Independent Living Difficulty`) == 1] <- "Yes"
+levels(cps_2021.dis$`Independent Living Difficulty`)[levels(cps_2021.dis$`Independent Living Difficulty`) == 2] <- "No"
+
+# Household Income
+# Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
+hf_income <- cps_2021.dis$`Household Family Income`
+levels(hf_income) <- c(
+ "$0 to $5,000",
+ "$5,000 to $9,999",
+ "$5,000 to $9,999",           # combining 2 and 3
+ "$10,000 to $14,999",
+ "$10,000 to $14,999",         # combining 4 and 5
+ "$15,000 to $19,999",
+ "$20,000 to $24,999",
+ "$25,000 to $29,999",
+ "$30,000 to $34,999",
+ "$35,000 to $39,999",
+ "$40,000 to $49,999",
+ "$50,000 to $74,999",
+ "$50,000 to $74,999",         # combining 12 and 13
+ "$75,000 to $99,999",
+ "$100,000 to $149,999",
+ "$150,000 and Over"
+)
+cps_2021.dis$`Household Family Income` <- hf_income
+
+# Sex
+levels(cps_2021.dis$Sex)[levels(cps_2021.dis$Sex) == 1] <- "Male"
+levels(cps_2021.dis$Sex)[levels(cps_2021.dis$Sex) == 2] <- "Female"
+
+# Employment Status
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 1] <- "Employed"
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 2] <- "Unemployed"
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 3] <- "Not in Labor Force" # not in labor force due to it being discouraged
+levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 4] <- "Not in Labor Force" # not in labor force for other reasons
+
+# Geographic Region
+geog_region <- cps_2021.dis$`Geographic Region`
+levels(geog_region) <- c(
+"Northeast",
+"Midwest",
+"South",
+"West"
+)
+cps_2021.dis$`Geographic Region` <- geog_region
+
+# Duration for Unemployment
+cps_2021.dis$`Duration of Unemployment`[cps_2021.dis$`Duration of Unemployment` == -1] <- NA 
+# converting -1 to NA since non-unemployed people did not answer
+
+# Reason for Unemployment
+reason_unemp <- cps_2021.dis$`Reason for Unemployment`
+levels(reason_unemp) <- c(
+NA,
+"Lost Job",
+"Lost Job",
+"Temporary Job Ended",
+"Left Job",
+"Re-entrant",
+"New-entrant"
+)
+cps_2021.dis$`Reason for Unemployment` <- reason_unemp
+
+# Race
+# Aggregating to White, Black, American Indian/Native American, Non-white Hispanic, Asian, and Mixed Race
+races <- cps_2021.dis$`Race`
+levels(races) <- c(
+"White",
+"Black",
+"American Indian, Alaskan Native",
+"Asian",
+"Hawaiian/Pacific Islander",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race",
+"Mixed Race"
+)
+cps_2021.dis$`Race` <- races
+
+levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 1] <- "Hispanic"
+levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 2] <- "Non-Hispanic"
+```
+
+# last variable to recode is education
+#Recoding the education level and condensing it to 8 categories
+```{r}
+cps_2021.dis <- cps_2021.dis %>%
+  mutate(
+    # Ensure numeric codes for comparisons
+    edu_num = as.numeric(as.character(`Education Level`)),
+
+    # Condense categories
+    edu_category = case_when(
+      edu_num %in% c(-1, 31, 32, 33, 34) ~ "Up to 8th Grade",
+      edu_num %in% c(35, 36, 37, 38) ~ "9th–12th (No Diploma)",
+      edu_num == 39 ~ "High School Graduate",
+      edu_num == 40 ~ "Some College, No Degree",
+      edu_num %in% c(41, 42) ~ "Associate's Degree",
+      edu_num == 43 ~ "Bachelor's Degree",
+      edu_num == 44 ~ "Master's Degree",
+      edu_num >= 45 ~ "Professional School or Higher",
+      TRUE ~ NA_character_
+    ),
+
+    # Create ordered factor
+    edu_category = factor(
+      edu_category,
+      levels = c(
+        "Up to 8th Grade",
+        "9th–12th (No Diploma)",
+        "High School Graduate",
+        "Some College, No Degree",
+        "Associate's Degree",
+        "Bachelor's Degree",
+        "Master's Degree",
+        "Professional School or Higher"
+      ),
+      ordered = TRUE
+    )
+  )
+#This is just replacing the old column with the new condensed one
+cps_2021.dis <- cps_2021.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+
+
+```
+
+Make a table looking at how factors differ across those in the labor force and those who arent
+```{r, plot}
+library(table1)
+# maybe we can combine all disability columns into 1? no, this loses information about participants with multiple disabilities
+
+# function from https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html to calculate and add p-values
+# modified to include ANOVA using the help of Dartmouth ChatGPT 4.1 model
+pvalue <- function(x, ...) {
+# decide if the variable is categorical (factor/character) before unlisting
+is_cat <- any(sapply(x, function(v) is.factor(v) || is.character(v)))
+
+# build response y while preserving factor levels if categorical
+if (is_cat) {
+y <- factor(unlist(lapply(x, as.character)))
+} else {
+y <- unlist(x)
+}
+
+# group labels
+g <- factor(rep(seq_along(x), times = sapply(x, length)))
+
+# remove missing values pairwise
+ok <- complete.cases(y, g)
+y <- y[ok]; g <- g[ok]
+
+# compute p-value
+if (!is_cat) {
+# numeric outcome: t-test for 2 groups, Welch one-way ANOVA for >2
+if (nlevels(g) > 2) {
+p <- oneway.test(y ~ g)$p.value
+} else {
+p <- t.test(y ~ g)$p.value
+}
+} else {
+# categorical outcome: chi-squared test of independence
+if (nlevels(y) < 2 || nlevels(g) < 2) {
+p <- NA_real_
+} else {
+p <- suppressWarnings(chisq.test(table(y, g))$p.value)
+}
+}
+
+# format p-value for HTML display using regex
+c("", sub("<", "&lt;", format.pval(p, digits = 3, eps = 0.001)))
+}
+
+# 2012 data
+empdistable.2012 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2012.dis,
+                  extra.col=c(`P-value`=pvalue),
+                  caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, May 2012", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
+empdistable.2012
+
+# 2019 data
+empdistable.2019 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2019.dis,
+                  extra.col=c(`P-value`=pvalue),
+                  caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, July 2019", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
+empdistable.2019
+
+# 2021 data
+empdistable.2021 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2021.dis,
+                  extra.col=c(`P-value`=pvalue),
+                  caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, July 2021", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
+empdistable.2021
+
+# Everything seems to have a p-value < 0.01 other than visual difficulty; maybe something is wrong with the p-value function/how the variable is coded. I'll check that later
+# still needs education to be recoded
+```
+
+Visualizing the distribution of unemployed individuals by disability type, 2012
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(viridis)
+
+# The following data was written using AI, I plan to rewrite this later
+
+employment_var <- "Employment Status"
+disability_vars <- c(
+ "Disability Status",
+ "Cognitive Difficulty",
+ "Hearing Difficulty",
+ "Ambulatory Difficulty",
+ "Visual Difficulty",
+ "Self-Care Difficulty"
+)
+
+# select the needed columns
+df <- cps_2012.dis %>%
+ select(all_of(c(employment_var, disability_vars)))
+
+# reshaping the data using pivot longer
+df_long <- df %>%
+ pivot_longer(
+   cols = all_of(disability_vars),
+   names_to = "Disability_Type",
+   values_to = "Has_Disability"
+ )
+
+# Filter to only those with the disability (you can keep "No" if you want comparisons)
+df_long_yes <- df_long %>% filter(Has_Disability == "Yes")
+
+# Calculate proportions of employment status by disability type
+plot_data <- df_long_yes %>%
+ group_by(Disability_Type, !!sym(employment_var)) %>%
+ summarise(count = n(), .groups = 'drop') %>%
+ group_by(Disability_Type) %>%
+ mutate(proportion = count / sum(count))
+
+ggplot(plot_data, aes(x = Disability_Type, y = proportion, fill = !!sym(employment_var))) +
+ geom_col(position = "fill") +  # stacked bar plot but subject to change because values are difficult to read
+ scale_y_continuous(labels = scales::percent) +
+ labs(
+   x = "Disability Type",
+   y = "Proportion",
+   fill = "Employment Status",
+   title = "Employment Status by Disability Type, May 2012"
+ ) +
+ scale_fill_manual(values = viridis(n = 3, direction = -1)) +
+ theme_minimal() +
+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+
+#  Load CPS data 
+
+
+library(ipumsr)
+library(tidyverse)
+
+# Load your CPS disability supplement data
+cps_data <- read_ipums_micro("/Users/preranadubey/Downloads/cps_00002.xml")
+cat("CPS data loaded:", nrow(cps_data), "rows\n")
+
+#  Create barriers_analysis dataset
+
+barriers_analysis <- cps_data %>%
+  filter(AGE >= 16) %>%
+  mutate(
+    # Disability indicators
+    has_cognitive = if_else(DIFFREM == 2, "Cognitive", "No"),
+    has_ambulatory = if_else(DIFFPHYS == 2, "Ambulatory", "No"),
+    has_independent_living = if_else(DIFFMOB == 2, "Independent Living", "No"),
+    has_self_care = if_else(DIFFCARE == 2, "Self-Care", "No"),
+    has_vision = if_else(DIFFEYE == 2, "Vision", "No"),
+    has_hearing = if_else(DIFFHEAR == 2, "Hearing", "No"),
+    
+    # Any disability
+    has_any_disability = if_else(
+      DIFFREM == 2 | DIFFPHYS == 2 | DIFFMOB == 2 | 
+      DIFFCARE == 2 | DIFFEYE == 2 | DIFFHEAR == 2,
+      "Has disability", "No disability"
+    ),
+    
+    # Disability count
+    disability_count = (DIFFREM == 2) + (DIFFPHYS == 2) + (DIFFMOB == 2) + 
+                       (DIFFCARE == 2) + (DIFFEYE == 2) + (DIFFHEAR == 2),
+    
+    # Employment status
+    employment_status = case_when(
+      EMPSTAT %in% c(10, 12) ~ "Employed",
+      EMPSTAT %in% c(20, 21, 22) ~ "Unemployed",
+      EMPSTAT %in% c(30, 31, 32, 33, 34, 35, 36) ~ "Not in Labor Force",
+      TRUE ~ "Other"
+    ),
+    
+    employed = if_else(EMPSTAT %in% c(10, 12), 1, 0),
+    
+    # Barriers
+    barrier_own_disability = if_else(DIEMPBAR1 == 2, 1, 0, missing = 0),
+    barrier_lack_education = if_else(DIEMPBAR2 == 2, 1, 0, missing = 0),
+    barrier_lack_counseling = if_else(DIEMPBAR3 == 2, 1, 0, missing = 0),
+    barrier_transportation = if_else(DIEMPBAR4 == 2, 1, 0, missing = 0),
+    barrier_loss_govt_assist = if_else(DIEMPBAR5 == 2, 1, 0, missing = 0),
+    barrier_special_features = if_else(DIEMPBAR6 == 2, 1, 0, missing = 0),
+    barrier_health_insurance = if_else(DIEMPBAR8 == 2, 1, 0, missing = 0),
+    barrier_other = if_else(DIEMPBAR9 == 2, 1, 0, missing = 0),
+    
+    answered_barriers = !is.na(DIEMPBAR1),
+    
+    any_barrier = if_else(
+      answered_barriers & (
+        barrier_own_disability == 1 | barrier_lack_education == 1 |
+        barrier_lack_counseling == 1 | barrier_transportation == 1 |
+        barrier_loss_govt_assist == 1 | barrier_special_features == 1 |
+        barrier_health_insurance == 1 | barrier_other == 1
+      ),
+      1, 0
+    ),
+    
+    barrier_count = barrier_own_disability + barrier_lack_education +
+                    barrier_lack_counseling + barrier_transportation +
+                    barrier_loss_govt_assist + barrier_special_features +
+                    barrier_health_insurance + barrier_other,
+    
+    # Demographics
+    age_group = case_when(
+      AGE >= 16 & AGE <= 24 ~ "16-24",
+      AGE >= 25 & AGE <= 34 ~ "25-34",
+      AGE >= 35 & AGE <= 44 ~ "35-44",
+      AGE >= 45 & AGE <= 54 ~ "45-54",
+      AGE >= 55 & AGE <= 64 ~ "55-64",
+      AGE >= 65 ~ "65+"
+    ),
+    
+    age_group_broad = case_when(
+      AGE >= 16 & AGE <= 34 ~ "16-34",
+      AGE >= 35 & AGE <= 54 ~ "35-54",
+      AGE >= 55 & AGE <= 64 ~ "55-64",
+      AGE >= 65 ~ "65+"
+    ),
+    
+    sex_label = if_else(SEX == 1, "Male", "Female"),
+    
+    race_ethnicity = case_when(
+      HISPAN != 0 ~ "Hispanic",
+      RACE == 1 ~ "White",
+      RACE == 2 ~ "Black",
+      RACE %in% 4:6 ~ "Asian/PI",
+      TRUE ~ "Other"
+    ),
+    
+    education_level = case_when(
+      EDUC <= 72 ~ "Less than HS",
+      EDUC >= 73 & EDUC <= 81 ~ "HS/GED",
+      EDUC >= 91 & EDUC <= 110 ~ "Some college",
+      EDUC >= 111 ~ "Bachelor's+"
+    )
+  )
+
+
+
+#  Create non_employed_disabled dataset
+
+
+non_employed_disabled <- barriers_analysis %>%
+  filter(
+    has_any_disability == "Has disability",
+    employed == 0,
+    answered_barriers == TRUE
+  )
+
+cat("non_employed_disabled created:", nrow(non_employed_disabled), "rows\n")
+
+
+```
+
+
+
+```{r}
+           
+# COMPLETE EMPLOYMENT BARRIERS ANALYSIS
+# CPS Disability Supplement Data from IPUMS
+
+
+# Load required packages
+library(ipumsr)
+library(tidyverse)
+library(scales)
+library(viridis)
+library(ggridges)
+
+#LOAD CPS DATA  
+
+# I downloaded the ddi and .XML file from IPUMS after curating the variables required
+cps_data <- read_ipums_micro("/Users/preranadubey/Downloads/cps_00002.xml")
+
+
+# DATA WRANGLING  
+
+# Looking at the barriers to employment data 
+barriers_analysis <- cps_data %>%
+  filter(AGE >= 16) %>%
+  mutate(
+    # The 6 Disability indicators
+    has_cognitive = if_else(DIFFREM == 2, "Cognitive", "No"),
+    has_ambulatory = if_else(DIFFPHYS == 2, "Ambulatory", "No"),
+    has_independent_living = if_else(DIFFMOB == 2, "Independent Living", "No"),
+    has_self_care = if_else(DIFFCARE == 2, "Self-Care", "No"),
+    has_vision = if_else(DIFFEYE == 2, "Vision", "No"),
+    has_hearing = if_else(DIFFHEAR == 2, "Hearing", "No"),
+    
+    # Any disability
+    has_any_disability = if_else(
+      DIFFREM == 2 | DIFFPHYS == 2 | DIFFMOB == 2 |    #I created this to create larger subsets just to compare employment or other variables
+      DIFFCARE == 2 | DIFFEYE == 2 | DIFFHEAR == 2,
+      "Has disability", "No disability"
+    ),
+    
+    # Disability count
+    disability_count = (DIFFREM == 2) + (DIFFPHYS == 2) + (DIFFMOB == 2) + 
+                       (DIFFCARE == 2) + (DIFFEYE == 2) + (DIFFHEAR == 2),
+    
+    disability_severity = case_when(
+      disability_count == 0 ~ "No disability",
+      disability_count == 1 ~ "1 disability",
+      disability_count == 2 ~ "2 disabilities",
+      disability_count >= 3 ~ "3+ disabilities"
+    ),
+    
+    primary_disability = case_when(
+      disability_count == 1 & DIFFREM == 2 ~ "Cognitive",
+    disability_count == 1 & DIFFPHYS == 2 ~ "Ambulatory",
+    disability_count == 1 & DIFFMOB == 2 ~ "Independent Living",
+      disability_count == 1 & DIFFCARE == 2 ~ "Self-Care",
+    disability_count == 1 & DIFFEYE == 2 ~ "Vision",
+    disability_count == 1 & DIFFHEAR == 2 ~ "Hearing",
+      disability_count > 1 ~ "Multiple",
+      TRUE ~ "None"
+    ),
+    
+    # Employment status
+    employment_status = case_when(
+      EMPSTAT %in% c(10, 12) ~ "Employed",
+      EMPSTAT %in% c(20, 21, 22) ~ "Unemployed",
+      EMPSTAT %in% c(30, 31, 32, 33, 34, 35, 36) ~ "Not in Labor Force",
+      TRUE ~ "Other"
+    ),
+    
+    employed = if_else(EMPSTAT %in% c(10, 12), 1, 0),
+    
+    # Employment barriers
+    barrier_own_disability = if_else(DIEMPBAR1 == 1, 1, 0, missing = 0),
+   barrier_lack_education = if_else(DIEMPBAR2 == 1, 1, 0, missing = 0),
+  barrier_lack_counseling = if_else(DIEMPBAR3 == 1, 1, 0, missing = 0),
+ barrier_transportation = if_else(DIEMPBAR4 == 1, 1, 0, missing = 0),
+ barrier_loss_govt_assist = if_else(DIEMPBAR5 == 1, 1, 0, missing = 0),
+barrier_special_features = if_else(DIEMPBAR6 == 1, 1, 0, missing = 0),
+barrier_health_insurance = if_else(DIEMPBAR8 == 1, 1, 0, missing = 0),
+ barrier_other = if_else(DIEMPBAR9 == 1, 1, 0, missing = 0),
+    
+    answered_barriers = !is.na(DIEMPBAR1),
+    
+    any_barrier = if_else(
+      answered_barriers & (
+   barrier_own_disability == 1 | barrier_lack_education == 1 |
+   barrier_lack_counseling == 1 | barrier_transportation == 1 |
+   barrier_loss_govt_assist == 1 | barrier_special_features == 1 |
+    barrier_health_insurance == 1 | barrier_other == 1
+      ),
+      1, 0
+    ),
+    
+    barrier_count = barrier_own_disability + barrier_lack_education +
+                    barrier_lack_counseling + barrier_transportation +
+                    barrier_loss_govt_assist + barrier_special_features +
+                    barrier_health_insurance + barrier_other,
+    
+    barrier_intensity = case_when(
+      !answered_barriers ~ "Not asked",
+     barrier_count == 0 ~ "No barriers",
+    barrier_count == 1 ~ "1 barrier",
+    barrier_count == 2 ~ "2 barriers",
+  barrier_count >= 3 ~ "3+ barriers"
+    ),
+    
+    # Demographics
+    age_group = case_when(
+      AGE >= 16 & AGE <= 24 ~ "16-24",
+    AGE >= 25 & AGE <= 34 ~ "25-34",
+    AGE >= 35 & AGE <= 44 ~ "35-44",
+    AGE >= 45 & AGE <= 54 ~ "45-54",
+   AGE >= 55 & AGE <= 64 ~ "55-64",
+  AGE >= 65 ~ "65+"
+    ),
+    
+    age_group_broad = case_when(             #Created broader age group bins for visualization 
+      AGE >= 16 & AGE <= 34 ~ "16-34",
+    AGE >= 35 & AGE <= 54 ~ "35-54",
+   AGE >= 55 & AGE <= 64 ~ "55-64",
+      AGE >= 65 ~ "65+"
+    ),
+    
+    sex_label = if_else(SEX == 1, "Male", "Female"),
+    
+    race_ethnicity = case_when(
+      HISPAN != 0 ~ "Hispanic",
+      RACE == 1 ~ "White",
+      RACE == 2 ~ "Black",
+      RACE %in% 4:6 ~ "Asian/PI",
+      TRUE ~ "Other"
+    ),
+    
+ # Education:  8 condensed categories
+    edu_num = as.numeric(EDUC),
+    
+    education_level = case_when(
+      edu_num %in% c(-1, 31, 32, 33, 34) ~ "Up to 8th Grade",
+      edu_num %in% c(35, 36, 37, 38) ~ "9th-12th (No Diploma)",
+    edu_num == 39 ~ "High School Graduate",
+    edu_num == 40 ~ "Some College, No Degree",
+    edu_num %in% c(41, 42) ~ "Associate's Degree",     
+    edu_num == 43 ~ "Bachelor's Degree",
+     edu_num == 44 ~ "Master's Degree",
+      edu_num >= 45 ~ "Professional School or Higher",
+      TRUE ~ NA_character_
+    ),
+    
+    # Creating an ordered factor
+    education_level = factor(
+      education_level,
+      levels = c(
+        "Up to 8th Grade",
+        "9th-12th (No Diploma)",
+        "High School Graduate",
+        "Some College, No Degree",
+        "Associate's Degree",
+        "Bachelor's Degree",
+        "Master's Degree",
+        "Professional School or Higher"
+      ),
+      ordered = TRUE
+    ),
+    
+    # Education order as numeric for analysis
+    education_order = as.numeric(education_level)
+  )
+
+cat("Total rows:", nrow(barriers_analysis), "\n\n")
+
+# Create analysis subset
+non_employed_disabled <- barriers_analysis %>%
+  filter(
+    has_any_disability == "Has disability",
+    employed == 0,
+    answered_barriers == TRUE
+  )
+
+cat("Non-employed with disabilities:", nrow(non_employed_disabled), "\n")
+cat("Weighted N:", comma(round(sum(non_employed_disabled$DISUPPWT, na.rm = TRUE))), "\n\n")
+
+
+
+# KEY ANALYSES  
+
+
+# Analysis 1: Population Overview
+pop_overview <- barriers_analysis %>%
+  group_by(has_any_disability) %>%
+  summarise(
+    n = n(),
+    weighted_n = sum(DISUPPWT, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(pct_of_total = weighted_n / sum(weighted_n) * 100)
+
+
+print(pop_overview)
+
+
+# Analysis 2: Employment Status
+employment_overview <- barriers_analysis %>%
+  filter(has_any_disability == "Has disability") %>%
+  group_by(employment_status) %>%
+  summarise(
+    n = n(),
+    weighted_n = sum(DISUPPWT, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(pct_of_disabled = weighted_n / sum(weighted_n) * 100) %>%
+  arrange(desc(weighted_n))
+
+print(employment_overview)
+cat("\n")
+
+# Analysis 3: Specific Barriers
+specific_barriers <- non_employed_disabled %>%
+  summarise(
+    own_disability = sum(DISUPPWT * barrier_own_disability, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    lack_education = sum(DISUPPWT * barrier_lack_education, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+   transportation = sum(DISUPPWT * barrier_transportation, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    special_features = sum(DISUPPWT * barrier_special_features, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    lack_counseling = sum(DISUPPWT * barrier_lack_counseling, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    loss_govt_assist = sum(DISUPPWT * barrier_loss_govt_assist, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    health_insurance = sum(DISUPPWT * barrier_health_insurance, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    other = sum(DISUPPWT * barrier_other, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100
+  ) %>%
+  pivot_longer(everything(), names_to = "barrier_type", values_to = "percent") %>%
+  arrange(desc(percent)) %>%
+  mutate(
+    percent = round(percent, 1),
+    barrier_label = case_when(
+      barrier_type == "own_disability" ~ "Own Disability/Health",
+     barrier_type == "lack_education" ~ "Lack of Education/Training",
+    barrier_type == "transportation" ~ "Lack of Transportation",
+    barrier_type == "special_features" ~ "Need for Special Features",
+  barrier_type == "lack_counseling" ~ "Lack of Job Counseling",
+    barrier_type == "loss_govt_assist" ~ "Loss of Government Assistance",
+    barrier_type == "health_insurance" ~ "Loss of Health Insurance",
+  barrier_type == "other" ~ "Other Barriers"
+    )
+  )
+
+print(specific_barriers)
+
+
+# Analysis 4: Educational Gradient (8 categories)
+education_employment_effect <- barriers_analysis %>%
+  filter(has_any_disability == "Has disability") %>%
+  filter(!is.na(education_level)) %>%
+  group_by(education_order, education_level) %>%
+  summarise(
+    n = n(),
+    weighted_n = sum(DISUPPWT, na.rm = TRUE),
+    employment_rate = sum(DISUPPWT * employed, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(education_order) %>%
+  mutate(employment_rate = round(employment_rate, 1))
+
+print(education_employment_effect)
+
+
+# Calculate gradient
+if(nrow(education_employment_effect) > 0) {
+  gradient_model <- lm(employment_rate ~ education_order, data = education_employment_effect)    #Used a linear regression model to observe employment rate by education level
+  cat("Linear gradient: Each education level increases employment by", 
+      round(coef(gradient_model)[2], 2), "percentage points\n\n")
+}
+
+# Analysis 5: Education by Age (8 condensed categories)
+education_by_age_detailed <- barriers_analysis %>%
+  filter(has_any_disability == "Has disability") %>%
+  filter(!is.na(education_level)) %>%
+  group_by(age_group_broad, education_order, education_level) %>%
+  summarise(
+    n = n(),
+    employment_rate = sum(DISUPPWT * employed, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(age_group_broad, education_order) %>%
+  mutate(employment_rate = round(employment_rate, 1))
+
+print(education_by_age_detailed %>% head(20))
+
+# Analysis 5: Employment Gap Data 
+ #Creating an  employment gap comparison: disabled vs. non-disabled by education
+employment_gap_by_education <- barriers_analysis %>%
+  filter(!is.na(education_level)) %>%
+  group_by(has_any_disability, education_order, education_level) %>%
+  summarise(
+    n = n(),
+    weighted_n = sum(DISUPPWT, na.rm = TRUE),
+    employment_rate = sum(DISUPPWT * employed, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(has_any_disability, education_order) %>%
+  mutate(employment_rate = round(employment_rate, 1))
+
+# Calculate the gap at each education level
+employment_gap_summary <- employment_gap_by_education %>%
+  pivot_wider(
+    names_from = has_any_disability, 
+    values_from = c(employment_rate, n, weighted_n)
+  ) %>%
+  mutate(
+    gap = `employment_rate_No disability` - `employment_rate_Has disability`,
+    gap_percent = gap / `employment_rate_No disability` * 100
+  )
+
+print(employment_gap_summary)
+
+
+# Analysis 6: Barriers by Education Level
+barriers_by_education <- non_employed_disabled %>%
+  filter(!is.na(education_level)) %>%
+  group_by(education_order, education_level) %>%
+  summarise(
+    n = n(),
+    weighted_n = sum(DISUPPWT, na.rm = TRUE),
+    pct_any_barrier = sum(DISUPPWT * any_barrier, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    avg_barrier_count = sum(DISUPPWT * barrier_count, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE),
+    pct_own_disability = sum(DISUPPWT * barrier_own_disability, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    pct_lack_education = sum(DISUPPWT * barrier_lack_education, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(education_order) %>%
+  mutate(across(starts_with("pct_"), ~round(., 1)),
+         avg_barrier_count = round(avg_barrier_count, 2))
+
+print(barriers_by_education)
+
+
+# CREATE VISUALIZATIONS  
+
+
+# Viz 1: Lollipop - Barriers
+viz1 <- ggplot(specific_barriers, 
+               aes(x = percent, y = reorder(barrier_label, percent))) +   
+  geom_segment(aes(x = 0, xend = percent, 
+                   y = reorder(barrier_label, percent), 
+                   yend = reorder(barrier_label, percent)),
+               color = "gray70", size = 1.2) +
+  geom_point(aes(color = percent), size = 7, show.legend = FALSE) +
+  geom_text(aes(label = paste0(percent, "%")),
+            hjust = -0.3, size = 4, fontface = "bold", color = "gray20") +
+  scale_color_viridis_c(option = "plasma", begin = 0.3, end = 0.9) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Employment Barriers Among Non-Employed People with Disabilities",
+    subtitle = "Own disability/health dominates as the primary barrier",
+    x = "Percent Reporting Barrier (%)",
+    y = NULL,
+    caption = "Source: CPS Disability Supplement, July 2021. N=29,143"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    panel.grid.major.y = element_blank(),
+    plot.caption = element_text(hjust = 0, size = 8, color = "gray50")
+  )
+
+ggsave("viz1_barriers_lollipop.png", viz1, width = 10, height = 6, dpi = 300)
+
+# Viz  2: line char -education gradient (8 categories)
+viz2 <- ggplot(education_employment_effect, 
+               aes(x = education_order, y = employment_rate)) +
+  geom_line(size = 1.5, color = viridis(1, option = "viridis")) +
+  geom_point(size = 4, color = viridis(1, option = "viridis")) +
+  geom_text(aes(label = paste0(employment_rate, "%")),
+            vjust = -1, size = 3.5, fontface = "bold") +
+  scale_x_continuous(
+    breaks = 1:8,
+    labels = function(x) str_wrap(levels(education_employment_effect$education_level)[x], width = 12)
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(education_employment_effect$employment_rate, na.rm = TRUE) * 1.15),
+    labels = percent_format(scale = 1)
+  ) +
+  labs(
+    title = "Education is Protective: Employment Rate by Education Level",
+    subtitle = "People with disabilities, ages 16+",
+    x = "Education Level",
+    y = "Employment Rate (%)",
+    caption = "Source: CPS Disability Supplement, July 2021"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    panel.grid.major.x = element_blank(),
+    plot.caption = element_text(hjust = 0, size = 8, color = "gray50")
+  )
+
+ggsave("viz2_education_gradient.png", viz2, width = 12, height = 7, dpi = 300)
+
+
+# Viz3: Line chart by age (8 categories)
+viz3 <- ggplot(education_by_age_detailed, 
+               aes(x = education_order, y = employment_rate, 
+                   color = age_group_broad, group = age_group_broad)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  scale_x_continuous(
+    breaks = 1:8,
+    labels = function(x) str_wrap(levels(education_by_age_detailed$education_level)[x], width = 12)
+  ) +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  scale_color_viridis_d(option = " plasma") +
+  labs(
+    title = "Education's Effect Varies by Age Group",
+    subtitle = "Employment rates by education level and age (people with disabilities)",
+    x = "Education Level",
+    y = "Employment Rate (%)",
+    color = "Age Group",
+    caption = "Source: CPS Disability Supplement, July 2021"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    legend.position = "right",
+    plot.caption = element_text(hjust = 0, size = 8, color = "gray50")
+  )
+
+ggsave("viz3_education_by_age.png", viz3, width = 13, height = 7, dpi = 300)
+
+#Viz 4:barriers by education level
+viz4 <- ggplot(barriers_by_education, 
+               aes(x = education_order, y = pct_any_barrier)) +
+  geom_line(size = 1.5, color = viridis(1, option = "plasma", begin = 0.3)) +
+  geom_point(size = 4, color = viridis(1, option = "plasma", begin = 0.3)) +
+  geom_text(aes(label = paste0(pct_any_barrier, "%")),
+            vjust = -1, size = 3.5, fontface = "bold") +
+  scale_x_continuous(
+    breaks = 1:8,
+    labels = function(x) str_wrap(levels(barriers_by_education$education_level)[x], width = 12)
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100),
+    labels = percent_format(scale = 1)
+  ) +
+  labs(
+    title = "Barrier Prevalence Decreases with Education",
+    subtitle = "Percent reporting any employment barrier (non-employed people with disabilities)",
+    x = "Education Level",
+    y = "Percent Reporting Barriers (%)",
+    caption = "Source: CPS Disability Supplement, July 2021"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    panel.grid.major.x = element_blank(),
+    plot.caption = element_text(hjust = 0, size = 8, color = "gray50")
+  )
+
+ggsave("viz4_barriers_by_education.png", viz4, width = 12, height = 7, dpi = 300)
+
+#SAVING ALL THE DATA  
+
+write_csv(pop_overview, "results_population_overview.csv")
+write_csv(employment_overview, "results_employment_status.csv")
+write_csv(specific_barriers, "results_specific_barriers.csv")
+write_csv(education_employment_effect, "results_education_gradient_8cat.csv")
+write_csv(education_by_age_detailed, "results_education_by_age_8cat.csv")
+write_csv(barriers_by_education, "results_barriers_by_education_8cat.csv")
+
+saveRDS(barriers_analysis, "barriers_analysis_clean.rds")
+saveRDS(non_employed_disabled, "non_employed_disabled.rds")
+
+
+```
+
+
+```{r}
+#             
+# SHINY APP: EDUCATIONAL GRADIENT EXPLORER
+# Interactive visualization showing how education's effect varies by age
+# For people with disabilities
+
+
+# Load required libraries
+library(shiny)          # For building interactive web apps
+library(tidyverse)    #For data manipulation and ggplot
+library(plotly)       # for interactive plots
+library(scales)       #for formatting axes (percentages etc.)
+library(viridis)      #For colorblind-friendly color palettes
+
+# Check if required datasets exist
+# These should be created from the main analysis script
+if(!exists("education_by_age_detailed")) {
+  stop("Error: education_by_age_detailed dataset not found. Run main analysis first.")
+}
+
+# # Create employment gap data for the disability comparison
+# # This compares disabled vs. non-disabled employment rates by education
+# employment_gap_by_education <- barriers_analysis %>%
+#   filter(!is.na(education_level)) %>%
+#   group_by(has_any_disability, education_order, education_level) %>%
+#   summarise(
+#     n = n(),
+#     weighted_n = sum(DISUPPWT, na.rm = TRUE),
+#     employment_rate = sum(DISUPPWT * employed, na.rm = TRUE) / sum(DISUPPWT, na.rm = TRUE) * 100,
+#     .groups = "drop"
+#   ) %>%
+#   arrange(has_any_disability, education_order) %>%
+#   mutate(employment_rate = round(employment_rate, 1))
+
+# Calculate the gap at each education level
+employment_gap_summary <- employment_gap_by_education %>%
+  pivot_wider(
+    names_from = has_any_disability, 
+    values_from = c(employment_rate, n, weighted_n)
+  ) %>%
+  mutate(
+    gap = `employment_rate_No disability` - `employment_rate_Has disability`,
+    gap_percent = gap / `employment_rate_No disability` * 100
+  )
+
+#             
+# USER INTERFACE (UI)
+# Defines what the app looks like
+#             
+
+ui <- fluidPage(
+  
+  # Custom CSS styling for a cleaner look
+  tags$head(
+    tags$style(HTML("
+      .well { background-color: #f8f9fa; }
+      h3 { color: #2c3e50; }
+      .key-finding { 
+        background-color: #e3f2fd; 
+        padding: 15px; 
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+    "))
+  ),
+  
+  # App title and description
+  titlePanel(
+    div(
+      h2("Educational Gradient Explorer: People with Disabilities"),
+      p("CPS Disability Supplement, July 2021", style = "color: gray; font-size: 14px;")
+    )
+  ),
+  
+  # Layout: sidebar for controls, main panel for output
+  sidebarLayout(
+    
+    # SIDEBAR PANEL - User controls
+    sidebarPanel(
+      width = 3,
+      
+      h3("Controls"),
+      
+      # Radio buttons to choose between two analysis types
+      radioButtons(
+        inputId = "analysis_choice",
+        label = "Select Analysis:",
+        choices = c(
+          "Employment by Education & Age" = "by_age",      # Show all selected ages
+          "Compare Two Age Groups" = "compare_ages",       # Show just two for comparison
+          "Disability Employment Gap" = "disability_gap"   # NEW: Compare disabled vs. non-disabled
+        ),
+        selected = "by_age"
+      ),
+      
+      hr(),
+      
+      # Checkbox group - shown only when "by_age" is selected
+      # Allows user to pick which age groups to display
+      conditionalPanel(
+        condition = "input.analysis_choice == 'by_age'",
+        checkboxGroupInput(
+          inputId = "age_groups",
+          label = "Select Age Groups:",
+          choices = unique(education_by_age_detailed$age_group_broad),
+          selected = unique(education_by_age_detailed$age_group_broad)  # Start with all selected
+        )
+      ),
+      
+      # Dropdown menus - shown only when "compare_ages" is selected
+      # Allows user to pick exactly two age groups to compare
+      conditionalPanel(
+        condition = "input.analysis_choice == 'compare_ages'",
+        selectInput(
+          inputId = "age_1",
+          label = "First Age Group:",
+          choices = unique(education_by_age_detailed$age_group_broad),
+          selected = "16-34"  # Default to youngest
+        ),
+        selectInput(
+          inputId = "age_2",
+          label = "Second Age Group:",
+          choices = unique(education_by_age_detailed$age_group_broad),
+          selected = "65+"    # Default to oldest for contrast
+        )
+      ),
+      
+      hr(),
+      
+      # Radio buttons to choose visualization type
+      radioButtons(
+        inputId = "chart_type",
+        label = "Chart Type:",
+        choices = c(
+          "Line Chart" = "line",
+          "Bar Chart" = "bar",
+          "Point Chart" = "point"
+        ),
+        selected = "line"
+      ),
+      
+      hr(),
+      
+      # Information box with data source details
+      wellPanel(
+        h4("About This Data"),
+        p("Source: CPS Disability Supplement"),
+        p("Date: July 2021"),
+        p("Population: Adults 16+ with disabilities"),
+        p("Weight: DISUPPWT"),
+        hr(),
+        p("Education categories: 8 detailed levels"),
+        p("Age groups: 4 categories")
+      )
+    ),
+    
+    # MAIN PANEL - Output displays
+    mainPanel(
+      width = 9,
+      
+      # Key finding box (dynamic text based on selections)
+      uiOutput("key_finding"),
+      
+      # Main interactive plot
+      plotlyOutput("main_plot", height = "550px"),
+      
+      # Additional insights (only shown for comparison mode)
+      uiOutput("insights"),
+      
+      # Horizontal line separator
+      hr(),
+      
+      # Data table showing the numbers behind the chart
+      h4("Data Table"),
+      tableOutput("data_table"),
+      
+      # Download button to export data as CSV
+      hr(),
+      downloadButton("download_data", "Download Data as CSV")
+    )
+  )
+)
+
+#             
+# SERVER LOGIC
+# Defines what the app does (reactive programming)
+#             
+
+server <- function(input, output, session) {
+  
+  # REACTIVE DATA
+  # This automatically updates whenever user changes selections
+  # It filters the data based on which analysis type and age groups are selected
+  plot_data <- reactive({
+    if (input$analysis_choice == "by_age") {
+      # Filter to include only checked age groups
+      education_by_age_detailed %>%
+        filter(age_group_broad %in% input$age_groups)
+    } else if (input$analysis_choice == "compare_ages") {
+      # Filter to include only the two selected ages
+      education_by_age_detailed %>%
+        filter(age_group_broad %in% c(input$age_1, input$age_2))
+    } else {
+      # For disability gap: return the comparison data
+      employment_gap_by_education
+    }
+  })
+  
+  # KEY FINDING BOX
+  # Dynamically generates summary text based on current view
+  output$key_finding <- renderUI({
+    
+    if (input$analysis_choice == "disability_gap") {
+      # For disability gap: calculate overall gap and whether education closes it
+      gap_at_low_ed <- employment_gap_summary %>%
+        filter(education_order == 1) %>%
+        pull(gap)
+      
+      gap_at_high_ed <- employment_gap_summary %>%
+        filter(education_order == max(education_order)) %>%
+        pull(gap)
+      
+      gap_closes <- gap_at_high_ed < gap_at_low_ed
+      
+      # Create HTML output with dynamic text
+      div(class = "key-finding",
+        h3("Key Finding: Disability Employment Gap"),
+        p(strong("People with disabilities have lower employment rates at ALL education levels")),
+        tags$ul(
+          tags$li(paste0("Gap at lowest education: ", round(gap_at_low_ed, 1), " percentage points")),
+          tags$li(paste0("Gap at highest education: ", round(gap_at_high_ed, 1), " percentage points")),
+          tags$li(strong(
+            if(gap_closes) {
+              paste0("✓ Education NARROWS the gap by ", round(gap_at_low_ed - gap_at_high_ed, 1), " pp")
+            } else {
+              paste0("✗ Gap WIDENS or stays constant with education")
+            }
+          ))
+        )
+      )
+      
+    } else if (input$analysis_choice == "compare_ages") {
+      # For comparison mode: calculate which age benefits more from education
+      data <- plot_data()
+      
+      age1_data <- data %>% filter(age_group_broad == input$age_1)
+      age2_data <- data %>% filter(age_group_broad == input$age_2)
+      
+      # Calculate range (max - min employment rate) for each age
+      age1_range <- max(age1_data$employment_rate) - min(age1_data$employment_rate)
+      age2_range <- max(age2_data$employment_rate) - min(age2_data$employment_rate)
+      
+      # Determine which age has bigger effect
+      bigger_effect <- if_else(age1_range > age2_range, input$age_1, input$age_2)
+      
+      # Create HTML output with dynamic text
+      div(class = "key-finding",
+        h3("Key Finding: Age Comparison"),
+        p(strong(paste0("Education's effect is LARGER for age group: ", bigger_effect))),
+        tags$ul(
+          tags$li(paste0(input$age_1, ": ", round(age1_range, 1), " pp gain from education")),
+          tags$li(paste0(input$age_2, ": ", round(age2_range, 1), " pp gain from education")),
+          tags$li(strong(paste0("Difference: ", round(abs(age1_range - age2_range), 1), " pp")))
+        )
+      )
+      
+    } else {
+      # For multi-age mode: general message
+      div(class = "key-finding",
+        h3(" Key Findings"),
+        p(strong("Education's effect varies by age group")),
+        p("Select age groups in the sidebar to explore patterns.")
+      )
+    }
+  })
+  
+  # MAIN PLOT
+  # Creates the visualization based on user selections
+  output$main_plot <- renderPlotly({
+    
+    # Get filtered data
+    data <- plot_data()
+    
+    # Different plot logic for disability gap vs. age analyses
+    if(input$analysis_choice == "disability_gap") {
+      
+      # DISABILITY GAP VISUALIZATION
+      # Show disabled vs. non-disabled employment rates
+      
+      if (input$chart_type == "line") {
+        # Line chart comparing the two groups
+        p <- ggplot(data, aes(x = education_order, y = employment_rate, 
+                             color = has_any_disability, group = has_any_disability)) +
+          geom_line(size = 1.5) +
+          geom_point(size = 4) +
+          scale_x_continuous(
+            breaks = 1:8,
+            labels = function(x) str_wrap(levels(data$education_level)[x], width = 10)
+          ) +
+          scale_y_continuous(
+            labels = percent_format(scale = 1),
+            limits = c(0, 100)
+          ) +
+          scale_color_viridis_d(option = " plasma", begin = 0.3, end = 0.7) +
+          labs(
+            title = "Employment Gap: People With vs. Without Disabilities",
+            subtitle = "By education level",
+            x = "Education Level",
+            y = "Employment Rate (%)",
+            color = "Disability Status"
+          ) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+          )
+        
+      } else if (input$chart_type == "bar") {
+        # Side-by-side bars
+        p <- ggplot(data, aes(x = reorder(education_level, education_order), 
+                             y = employment_rate, fill = has_any_disability)) +
+          geom_col(position = "dodge", width = 0.7) +
+          scale_y_continuous(
+            labels = percent_format(scale = 1),
+            limits = c(0, 100)
+          ) +
+          scale_fill_viridis_d(option = " plasma", begin = 0.3, end = 0.7) +
+          labs(
+            title = "Employment Gap: People With vs. Without Disabilities",
+            subtitle = "By education level",
+            x = "Education Level",
+            y = "Employment Rate (%)",
+            fill = "Disability Status"
+          ) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+          )
+        
+      } else {
+        # Point chart
+        p <- ggplot(data, aes(x = education_order, y = employment_rate, 
+                             color = has_any_disability)) +
+          geom_point(size = 6) +
+          scale_x_continuous(
+            breaks = 1:8,
+            labels = function(x) str_wrap(levels(data$education_level)[x], width = 10)
+          ) +
+          scale_y_continuous(
+            labels = percent_format(scale = 1),
+            limits = c(0, 100)
+          ) +
+          scale_color_viridis_d(option = " plasma", begin = 0.3, end = 0.7) +
+          labs(
+            title = "Employment Gap: People With vs. Without Disabilities",
+            subtitle = "By education level",
+            x = "Education Level",
+            y = "Employment Rate (%)",
+            color = "Disability Status"
+          ) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+          )
+      }
+      
+    } else {
+      
+      # AGE-BASED VISUALIZATIONS
+      # Show how education's effect varies by age
+      
+      # Create ggplot based on selected chart type
+      if (input$chart_type == "line") {
+        # Line chart: good for showing trends across education levels
+        p <- ggplot(data, aes(x = education_order, y = employment_rate, 
+                             color = age_group_broad, group = age_group_broad)) +
+          geom_line(size = 1.2) +
+          geom_point(size = 3) +
+          scale_x_continuous(
+            breaks = 1:8,  # Show all 8 education levels
+            labels = function(x) str_wrap(levels(data$education_level)[x], width = 10)
+          ) +
+          scale_y_continuous(labels = percent_format(scale = 1)) +
+          scale_color_viridis_d(option = " plasma") +  # Colorblind-friendly palette
+          labs(
+            title = "Employment Rate by Education and Age",
+            subtitle = "People with disabilities",
+            x = "Education Level",
+            y = "Employment Rate (%)",
+            color = "Age Group"
+          ) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+          )
+        
+      } else if (input$chart_type == "bar") {
+        # Bar chart: good for comparing values side-by-side
+        p <- ggplot(data, aes(x = reorder(education_level, education_order), 
+                             y = employment_rate, fill = age_group_broad)) +
+          geom_col(position = "dodge", width = 0.7) +  # Grouped bars
+          scale_y_continuous(labels = percent_format(scale = 1)) +
+          scale_fill_viridis_d(option = " plasma") +
+          labs(
+            title = "Employment Rate by Education and Age",
+            subtitle = "People with disabilities",
+            x = "Education Level",
+            y = "Employment Rate (%)",
+            fill = "Age Group"
+          ) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+          )
+        
+      } else {
+        # Point chart: simple scatter plot
+        p <- ggplot(data, aes(x = education_order, y = employment_rate, 
+                             color = age_group_broad)) +
+          geom_point(size = 5) +
+          scale_x_continuous(
+            breaks = 1:8,
+            labels = function(x) str_wrap(levels(data$education_level)[x], width = 10)
+          ) +
+          scale_y_continuous(labels = percent_format(scale = 1)) +
+          scale_color_viridis_d(option = " plasma") +
+          labs(
+            title = "Employment Rate by Education and Age",
+            subtitle = "People with disabilities",
+            x = "Education Level",
+            y = "Employment Rate (%)",
+            color = "Age Group"
+          ) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(face = "bold", size = 14),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+          )
+      }
+    }
+    
+    # Convert static ggplot to interactive plotly chart
+    # Users can hover for exact values, zoom, pan, etc.
+    ggplotly(p, tooltip = c("x", "y", "color")) %>%
+      layout(hovermode = "closest")
+  })
+  
+  # ADDITIONAL INSIGHTS
+  # Only shown in comparison mode - detects if lines cross
+  output$insights <- renderUI({
+    
+    data <- plot_data()
+    
+    if(input$analysis_choice == "disability_gap") {
+      # Show whether gap narrows or widens at different education levels
+      
+      # Find education level with smallest and largest gaps
+      smallest_gap <- employment_gap_summary %>%
+        arrange(gap) %>%
+        slice(1)
+      
+      largest_gap <- employment_gap_summary %>%
+        arrange(desc(gap)) %>%
+        slice(1)
+      
+      div(
+        style = "background-color: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px;",
+        h4("💡 Insight"),
+        tags$ul(
+          tags$li(paste0("SMALLEST gap: ", smallest_gap$education_level, 
+                        " (", round(smallest_gap$gap, 1), " pp)")),
+          tags$li(paste0("LARGEST gap: ", largest_gap$education_level, 
+                        " (", round(largest_gap$gap, 1), " pp)")),
+          tags$li(if(smallest_gap$education_order > largest_gap$education_order) {
+            "Higher education helps close the disability employment gap"
+          } else {
+            "The gap persists even at higher education levels"
+          })
+        )
+      )
+      
+    } else if(input$analysis_choice == "compare_ages") {
+      # Get data for each selected age group
+      age1_data <- data %>% filter(age_group_broad == input$age_1)
+      age2_data <- data %>% filter(age_group_broad == input$age_2)
+      
+      # Check if the lines cross at any point
+      # This happens when one age starts higher but ends lower (or vice versa)
+      crosses <- FALSE
+      cross_point <- NULL
+      
+      for(i in 1:(nrow(age1_data)-1)) {
+        # Check if age1 and age2 switch positions between two education levels
+        if((age1_data$employment_rate[i] < age2_data$employment_rate[i] & 
+            age1_data$employment_rate[i+1] > age2_data$employment_rate[i+1]) |
+           (age1_data$employment_rate[i] > age2_data$employment_rate[i] & 
+            age1_data$employment_rate[i+1] < age2_data$employment_rate[i+1])) {
+          crosses <- TRUE
+          cross_point <- age1_data$education_level[i]
+          break
+        }
+      }
+      
+      # Display insight based on whether lines cross
+      div(
+        style = "background-color: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px;",
+        h4("💡 Insight"),
+        if(crosses) {
+          p(paste0("The lines cross around '", cross_point, 
+                  "', suggesting education has different effects at different levels for these age groups."))
+        } else {
+          p("The lines don't cross, suggesting consistent age differences across all education levels.")
+        }
+      )
+    } else {
+      # No insights box for multi-age view
+      NULL
+    }
+  })
+  
+  # DATA TABLE
+  # Shows the actual numbers behind the visualization
+  output$data_table <- renderTable({
+    data <- plot_data()
+    
+    if(input$analysis_choice == "disability_gap") {
+      # For disability gap: show disabled, non-disabled, and gap
+      employment_gap_summary %>%
+        select(education_level, 
+               `employment_rate_Has disability`, 
+               `employment_rate_No disability`, 
+               gap) %>%
+        mutate(
+          `employment_rate_Has disability` = paste0(round(`employment_rate_Has disability`, 1), "%"),
+          `employment_rate_No disability` = paste0(round(`employment_rate_No disability`, 1), "%"),
+          gap = paste0(round(gap, 1), " pp")
+        ) %>%
+        rename(
+          "Education Level" = education_level,
+          "With Disability (%)" = `employment_rate_Has disability`,
+          "Without Disability (%)" = `employment_rate_No disability`,
+          "Gap" = gap
+        )
+    } else {
+      # Format the data for display
+      data %>%
+        select(age_group_broad, education_level, n, employment_rate) %>%
+        mutate(employment_rate = paste0(round(employment_rate, 1), "%")) %>%
+        rename(
+          "Age Group" = age_group_broad,
+          "Education Level" = education_level,
+          "Sample Size" = n,
+          "Employment Rate" = employment_rate
+        )
+    }
+  })
+  
+  # DOWNLOAD HANDLER
+  # Allows users to download the filtered data as CSV
+  output$download_data <- downloadHandler(
+    filename = function() {
+      # Create filename with current date
+      paste0("education_employment_data_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      # Write the current filtered data to CSV
+      write_csv(plot_data(), file)
+    }
+  )
+}
+
+             
+
+
+# This launches the Shiny application
+             
+
+shinyApp(ui = ui, server = server)
+```
+
+
+```{r}
+# Check the values and frequencies of DIEMPBAR1
+table(cps_data$DIEMPBAR1, useNA = "always")
+
+# Check cross-tabulation with answered_barriers
+barriers_analysis %>%
+  filter(answered_barriers == TRUE) %>%
+  count(barrier_own_disability, DIEMPBAR1)
+```
+
+
+```{r}
+```
+
