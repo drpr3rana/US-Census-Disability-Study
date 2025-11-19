@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import geopandas as gpd
 from geo_utils import plot_disability_map  
+from geo_utils import plot_disability_mapw
 from streamlit.components.v1 import html
 
 #Chatgpt assistance to build the streamlit app 
@@ -10,14 +11,13 @@ st.set_page_config(page_title="CPS Disability Maps", layout="wide")
 
 #Runwith: python -m streamlit run app.py
 
-
 # Load data once and cache 
 
 @st.cache_data
 def load_cps_data():
-    df19 = pd.read_csv('CPSdata19-API.csv')
-    df21 = pd.read_csv('CPSdata21-API.csv')
-    df12 = pd.read_csv('CPSdata12-API.csv')
+    df19 = pd.read_csv('CPSdata19w-API.csv')
+    df21 = pd.read_csv('CPSdata21w-API.csv')
+    df12 = pd.read_csv('CPSdata12w-API.csv')
 
     columns_to_str = ['GESTFIPS', 'GEREG', "GTCO"]
     for df in [df19, df12, df21]:
@@ -94,7 +94,7 @@ st.markdown(f"### {disability_label} in {year} by {geo_label}")
 # Create GeoDataFrame 
 
 try:
-    dgdf = plot_disability_map(
+    dgdf = plot_disability_mapw(
         df=df,
         geo_group_col=geo_group_col,
         shapefile_path=shapefile_path,
