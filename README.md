@@ -1,8 +1,16 @@
 
 
-
-
 # To download and clean datasets for Python 
+
+(All relevant datasets have been pulled and included in the PythonAnalysis directory)
+
+Run the notebook "DWprevtesting.ipynb"  and generate datasets as desired, from the PythonAnalysis folder
+
+# To conduct paired (by states) t-testing 
+
+(All relevant datasets have been pulled and included in the PythonAnalysis directory)
+
+Run the notebook "DWcpsDataRetrieval.ipynb" in PythonAnalysis folder
 
 # To run the CPS Disability Prevalence Explorer
 
