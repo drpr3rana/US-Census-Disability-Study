@@ -8,16 +8,7 @@ output: html_document
 Install and load all the necessary libraries
 ```{r}
 # uncomment these out if these packages are not installed!
-#install.packages('cpsR')
-#install.packages('ipumsr')
-#install.packages('tidyverse')
-#install.packages('table1')
-#install.packages('ggplot2')
-#install.packages('scales')
-#install.packages('viridis')
-#install.packages('broom')
-#install.packages('kableExtra')
-#install.packages('jtools')
+#install.packages(c('cpsR', 'ipumsr', 'tidyverse', 'table1', 'ggplot2','scales','viridis','broom','kableExtra','jtools'))
 
 # load the libraries
 library(cpsR) # used to extract the data
@@ -40,7 +31,7 @@ library(jtools) # see the model fit of the log reg models
 Set the API key
 ```{r}
 # set the API key here
-# CENSUS_API_KEY ='key'
+census_api_key("8f4b8714d231e772d84e533d364329314747e556", install = T, overwrite = TRUE)
 
 # checking my API key
 Sys.getenv("CENSUS_API_KEY")
@@ -1222,6 +1213,7 @@ clean_model.4$upper_CI <- exp(clean_model.4$estimate + 1.96 * clean_model.4$std.
 #or_ci.3 <- paste0(round(clean_model.3$odds_ratio, 2)," [", round(clean_model.3$lower_CI, 2), ", ", round(clean_model.3$upper_CI, 2), "]")
 #or_ci.4 <- paste0(round(clean_model.4$odds_ratio, 2)," [", round(clean_model.4$lower_CI, 2), ", ", round(clean_model.4$upper_CI, 2), "]")
 
+# cleaning the terms for the forest plot later
 unique(clean_model.4$term)
 recodeterms <- c(
 "Year2019" = "2019",
@@ -1261,7 +1253,7 @@ clean_model.4 <- clean_model.4 %>%
   mutate(
     label = ifelse(term %in% names(recodeterms),
                    recodeterms[term],
-                   term)  # fallback, keep original term if no mapping
+                   term)  # keep original term if no mapping
   )
 
 # check terms again
@@ -1399,7 +1391,7 @@ ggplot(clean_model.4, aes(x = factor(label, levels = rev(unique(label))), y = od
     )
 ```
 
-Display the predictors' odds ratios in a table
+# Displaying the predictors' odds ratios in a table
 ```{r}
 table_data <- clean_model.4 %>%
   mutate(
@@ -1410,7 +1402,7 @@ table_data <- clean_model.4 %>%
   select(label, or_ci, p.value.fmt) %>%
   arrange(factor(label, levels = unique(label)))
 
-kable(table_data, col.names = c("Predictor", "Odds Ratio (95% CI)", "p-value"), 
+kable(table_data, col.names = c("Predictor", "Odds Ratio [95% CI]", "p-value"), 
       booktabs = TRUE, escape = FALSE,
       caption = "Odds Ratios and p-values for Predictor Variables") %>%
   kable_styling(full_width = FALSE, position = "left") %>%
