@@ -1,0 +1,375 @@
+---
+title: "barrier questions code"
+output: html_document
+date: "2025-11-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+
+# PULL HEALTH INSURANCE DATA FOR PEOPLE WITH DISABILITIES
+# Using IPUMS USA API (Census/ACS Data)
+#             
+
+library(ipumsr)
+library(tidyverse)
+
+# Set your API key (if not already set)
+set_ipums_api_key("59cba10d8a5da536fc06b59dd63cda46850a4ad386feb7e9a002d7e9", save = TRUE,overwrite = TRUE)
+
+# STEP 1: Define Extract  
+
+healthcare_disability_extract <- define_extract_usa(
+  description = "Health Insurance Coverage for People with Disabilities",
+  samples = "us2022a",  # 2022 ACS (most recent available)
+  variables = list(
+     #IDENTIFIERS  
+    var_spec("YEAR"),
+    var_spec("SAMPLE"),
+    var_spec("SERIAL"),
+    var_spec("PERNUM"),
+    
+     #DEMOGRAPHICS  
+    var_spec("AGE"),
+    var_spec("SEX"),
+    var_spec("RACE"),
+    var_spec("HISPAN"),
+    var_spec("EDUC"),
+    
+     #WEIGHT (CRITICAL!)  
+    var_spec("PERWT"),      # Person weight for analysis
+    
+     #DISABILITY QUESTIONS (6 ACS questions)  
+    var_spec("DIFFREM"),    # Cognitive difficulty
+    var_spec("DIFFPHYS"),   # Ambulatory difficulty
+    var_spec("DIFFMOB"),    # Independent living difficulty
+    var_spec("DIFFCARE"),   # Self-care difficulty
+    var_spec("DIFFEYE"),    # Vision difficulty
+    var_spec("DIFFHEAR"),   # Hearing difficulty
+    
+     #HEALTH INSURANCE VARIABLES  
+    var_spec("HCOVANY"),    # Any health insurance coverage
+    var_spec("HINSCARE"),   # Medicare coverage
+    var_spec("HINSCAID"),   # Medicaid coverage
+    var_spec("HCOVPRIV"),   # Private health insurance
+    var_spec("HCOVPUB")     # Public health insurance coverage
+  )
+)
+
+ #STEP 2: Submit Extract  
+cat("\nSubmitting extract to IPUMS...\n")
+submitted_extract <- submit_extract(healthcare_disability_extract)
+cat("Extract number:", submitted_extract$number, "\n")
+
+ #STEP 3: Wait for Completion  
+cat("\nWaiting for extract to complete (this may take 5-15 minutes)...\n")
+complete_extract <- wait_for_extract(submitted_extract)
+cat("Extract complete!\n")
+
+# STEP 4: Download  
+
+download_extract(complete_extract, download_dir = ".")
+
+ #STEP 5: Read Data  
+usa_data <- read_ipums_micro("/Users/preranadubey/usa_00003.xml")
+
+ #STEP 6: Verifying Data  
+
+cat("Total observations:", nrow(usa_data), "\n")
+cat("Total variables:", ncol(usa_data), "\n\n")
+
+# Check variable names
+cat("Variables loaded:\n")
+print(names(usa_data))
+
+# Save for future use
+saveRDS(usa_data, "usa_disability_healthcare_2022.rds")
+cat("\nData saved as 'usa_disability_healthcare_2022.rds'\n")
+```
+
+
+```{r}
+
+# ANALYZE HEALTH INSURANCE COVERAGE BY DISABILITY STATUS
+
+
+library(tidyverse)
+
+# If you already have the saved data:
+# usa_data <- readRDS("usa_disability_healthcare_2022.rds")
+
+#  PREPARE DATA 
+healthcare_analysis <- usa_data %>%
+  filter(AGE >= 18) %>%  # Adults only
+  mutate(
+    # Create disability indicator
+    has_disability = case_when(
+      DIFFREM == 2 | DIFFPHYS == 2 | DIFFMOB == 2 | 
+      DIFFCARE == 2 | DIFFEYE == 2 | DIFFHEAR == 2 ~ "Has disability",
+      TRUE ~ "No disability"
+    ),
+    
+    # Recode insurance variables (typically 1=No, 2=Yes in Census/ACS)
+    # Check with: ipums_val_labels(usa_data$HCOVANY)
+    has_any_coverage = if_else(HCOVANY == 2, "Yes", "No"),
+    has_medicare = if_else(HINSCARE == 2, "Yes", "No"),
+    has_medicaid = if_else(HINSCAID == 2, "Yes", "No"),
+    has_private = if_else(HCOVPRIV == 2, "Yes", "No"),
+    has_public = if_else(HCOVPUB == 2, "Yes", "No")
+  )
+
+#ANALYSIS: Health Insurance Coverage by Disability Status 
+
+# Overall coverage rates
+coverage_by_disability <- healthcare_analysis %>%
+  group_by(has_disability) %>%
+  summarise(
+    total_pop = sum(PERWT),
+    pct_any_coverage = sum(PERWT[has_any_coverage == "Yes"]) / sum(PERWT) * 100,
+    pct_medicare = sum(PERWT[has_medicare == "Yes"]) / sum(PERWT) * 100,
+    pct_medicaid = sum(PERWT[has_medicaid == "Yes"]) / sum(PERWT) * 100,
+    pct_private = sum(PERWT[has_private == "Yes"]) / sum(PERWT) * 100,
+    pct_public = sum(PERWT[has_public == "Yes"]) / sum(PERWT) * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric) & !total_pop, ~round(., 1)))
+
+print(coverage_by_disability)
+
+#  DETAILED BREAKDOWN FOR PEOPLE WITH DISABILITIES ONLY 
+
+disability_coverage_detail <- healthcare_analysis %>%
+  filter(has_disability == "Has disability") %>%
+  summarise(
+    total_with_disability = sum(PERWT),
+    
+    # Coverage types
+    any_coverage = sum(PERWT[has_any_coverage == "Yes"]),
+    medicare = sum(PERWT[has_medicare == "Yes"]),
+    medicaid = sum(PERWT[has_medicaid == "Yes"]),
+    private = sum(PERWT[has_private == "Yes"]),
+    public = sum(PERWT[has_public == "Yes"]),
+    
+    # Percentages
+    pct_any_coverage = any_coverage / total_with_disability * 100,
+    pct_medicare = medicare / total_with_disability * 100,
+    pct_medicaid = medicaid / total_with_disability * 100,
+    pct_private = private / total_with_disability * 100,
+    pct_public = public / total_with_disability * 100
+  ) %>%
+  mutate(across(starts_with("pct_"), ~round(., 1)))
+
+
+print(disability_coverage_detail)
+
+# BREAKDOWN BY TYPE OF DISABILITY
+
+disability_type_coverage <- healthcare_analysis %>%
+  filter(has_disability == "Has disability") %>%
+  mutate(
+    disability_type = case_when(
+      DIFFREM == 2 ~ "Cognitive",
+      DIFFPHYS == 2 ~ "Ambulatory",
+      DIFFMOB == 2 ~ "Independent living",
+      DIFFCARE == 2 ~ "Self-care",
+      DIFFEYE == 2 ~ "Vision",
+      DIFFHEAR == 2 ~ "Hearing",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  group_by(disability_type) %>%
+  summarise(
+    population = sum(PERWT),
+    pct_medicare = sum(PERWT[has_medicare == "Yes"]) / sum(PERWT) * 100,
+    pct_medicaid = sum(PERWT[has_medicaid == "Yes"]) / sum(PERWT) * 100,
+    pct_private = sum(PERWT[has_private == "Yes"]) / sum(PERWT) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(population)) %>%
+  mutate(across(starts_with("pct_"), ~round(., 1)))
+
+print(disability_type_coverage)
+
+# SAVE RESULTS  
+write_csv(coverage_by_disability, "coverage_by_disability_status.csv")
+write_csv(disability_coverage_detail, "disability_coverage_detail.csv")
+write_csv(disability_type_coverage, "coverage_by_disability_type.csv")
+
+```
+
+
+```{r}
+
+# COLORBLIND FRIENDLY VISUALIZATION
+
+library(ggplot2)
+library(viridis)
+library(tidyverse)
+
+# PREPARING DATA FOR PLOTTING 
+
+# Reshape for plotting
+plot_data <- coverage_by_disability %>%
+  select(has_disability, pct_medicare, pct_medicaid, pct_private, pct_any_coverage) %>%
+  pivot_longer(
+    cols = starts_with("pct_"),
+    names_to = "coverage_type",
+    values_to = "percent"
+  ) %>%
+  mutate(
+    coverage_label = case_when(
+      coverage_type == "pct_any_coverage" ~ "Any Coverage",
+      coverage_type == "pct_medicare" ~ "Medicare",
+      coverage_type == "pct_medicaid" ~ "Medicaid",
+      coverage_type == "pct_private" ~ "Private Insurance"
+    ),
+    # Reorder for better visualization
+    coverage_label = factor(coverage_label, 
+                           levels = c("Any Coverage", "Private Insurance", 
+                                     "Medicare", "Medicaid"))
+  )
+
+#  CREATE GROUPED BAR CHART 
+
+ggplot(plot_data, aes(x = coverage_label, y = percent, fill = has_disability)) +
+  geom_col(position = "dodge", width = 0.7) +
+  geom_text(
+    aes(label = paste0(round(percent, 1), "%")),
+    position = position_dodge(width = 0.7),
+    vjust = -0.5, 
+    size = 3.5,
+    fontface = "bold"
+  ) +
+  scale_fill_viridis_d(option = "D", begin = 0.3, end = 0.7) +  # Viridis colorblind-friendly palette
+  scale_y_continuous(
+    limits = c(0, max(plot_data$percent) * 1.15),
+    expand = c(0, 0)
+  ) +
+  labs(
+    title = "Health Insurance Coverage by Disability Status",
+    subtitle = "Adults 18+, 2022 American Community Survey",
+    x = NULL,
+    y = "Percent with Coverage (%)",
+    fill = "Disability Status",
+    caption = "Source: IPUMS USA, 2022 ACS. Weighted using PERWT.\nColorblind-friendly palette."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "gray30"),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(face = "bold", size = 11),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    plot.caption = element_text(hjust = 0, size = 8, color = "gray40")
+  )
+
+ggsave("healthcare_coverage_comparison.png", width = 10, height = 6, dpi = 300)
+
+
+# Option 2: STACKED BAR CHART
+# 
+# ggplot(plot_data, aes(x = has_disability, y = percent, fill = coverage_label)) +
+#   geom_col(position = "dodge", width = 0.7) +
+#   geom_text(
+#     aes(label = paste0(round(percent, 1), "%")),
+#     position = position_dodge(width = 0.7),
+#     vjust = -0.5,
+#     size = 3
+#   ) +
+#   scale_fill_viridis_d(option = "viridis", begin = 0.2, end = 0.9) +
+#   scale_y_continuous(
+#     limits = c(0, 100),
+#     expand = c(0, 0)
+#   ) +
+#   labs(
+#     title = "Health Insurance Coverage Types by Disability Status",
+#     subtitle = "Adults 18+, 2022 American Community Survey",
+#     x = "Disability Status",
+#     y = "Percent with Coverage (%)",
+#     fill = "Coverage Type",
+#     caption = "Source: IPUMS USA, 2022 ACS. Weighted using PERWT."
+#   ) +
+#   theme_minimal() +
+#   theme(
+#     plot.title = element_text(face = "bold", size = 14),
+#     legend.position = "bottom",
+#     legend.title = element_text(face = "bold"),
+#     panel.grid.major.x = element_blank()
+#   )
+# 
+# ggsave("healthcare_coverage_types.png", width = 10, height = 6, dpi = 300)
+
+
+
+# #OPTION 3
+# 
+# ggplot(plot_data, aes(x = has_disability, y = percent, fill = has_disability)) +
+#   geom_col(width = 0.6, show.legend = FALSE) +
+#   geom_text(
+#     aes(label = paste0(round(percent, 1), "%")),
+#     vjust = -0.5,
+#     size = 4,
+#     fontface = "bold"
+#   ) +
+#   facet_wrap(~coverage_label, nrow = 1) +
+#   scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.7) +
+#   scale_y_continuous(
+#     limits = c(0, 100),
+#     expand = c(0, 0)
+#   ) +
+#   labs(
+#     title = "Health Insurance Coverage by Disability Status",
+#     subtitle = "Comparison across coverage types, Adults 18+, 2022 ACS",
+#     x = NULL,
+#     y = "Percent with Coverage (%)",
+#     caption = "Source: IPUMS USA, 2022 ACS. Weighted using PERWT."
+#   ) +
+#   theme_minimal() +
+#   theme(
+#     plot.title = element_text(face = "bold", size = 14),
+#     axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+#     strip.text = element_text(face = "bold", size = 10),
+#     panel.grid.major.x = element_blank()
+#   )
+# 
+# ggsave("healthcare_coverage_faceted.png", width = 12, height = 5, dpi = 300)
+
+
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
