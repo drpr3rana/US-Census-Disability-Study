@@ -48,7 +48,7 @@ Assuming you’ve created requirements.txt with all needed packages:
 pip install -r requirements.txt
 ```
 
-**3. Run App  **
+**3. Run App**
 ```
 python -m streamlit run app.py
 ```
