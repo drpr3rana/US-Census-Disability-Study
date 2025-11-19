@@ -5,32 +5,49 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
-Loading packages
-
+Install and load all the necessary libraries
 ```{r}
-library(car)
-library(tidyverse)
+# uncomment these out if these packages are not installed!
+#install.packages('cpsR')
+#install.packages('ipumsr')
+#install.packages('tidyverse')
+#install.packages('table1')
+#install.packages('ggplot2')
+#install.packages('scales')
+#install.packages('viridis')
+#install.packages('broom')
+#install.packages('kableExtra')
+#install.packages('jtools')
+
+# load the libraries
+library(cpsR) # used to extract the data
+library(ipumsr)
+library(tidyverse) # clean and recode the data
+library(table1) # used to make nice publication ready looking tables
+library(ggplot2) # used to make the plots
+library(scales) # used to format percentages for the plots
+library(viridis) # colorblind friendly color schemes
+library(broom) # clean up the log reg model and extracts the aspects of the model
+library(kableExtra) # make publication-ready tables
+library(jtools) # see the model fit of the log reg models
 ```
 
 ------------------------------------------------------------------------
 ### Pulling the Data
 
-#### Installing cpsR and IPUMS to pull the basic data
+#### Extracting the basic data using cpsR and ipumsr
 
+Set the API key
 ```{r}
-# uncomment these out if these packages are not installed!
-#install.packages('cpsR')
-#install.packages('ipumsr')
-library(cpsR)
-library(ipumsr)
-
 # set the API key here
-# CENSUS_API_KEY='key'
+# CENSUS_API_KEY ='key'
 
 # checking my API key
 Sys.getenv("CENSUS_API_KEY")
+```
 
-
+Extract the data
+```{r}
 # assigning desired column names to a list
 lowercols <- c("hrhhid", "hrhhid2", "prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","prunedur","pruntype",
                #"hinscaid", # trying a bunch of different variable names for medicare/medicaid
@@ -157,10 +174,10 @@ levels(cps_2012.dis$`Independent Living Difficulty`)[levels(cps_2012.dis$`Indepe
 # I based this code off of Prerana's education recoding.
 cps_2012.dis <- cps_2012.dis %>%
   mutate(
-    # Convert 'Education Level' to numeric codes for recoding
+    # converting household family income to numeric 
     inc_num = as.numeric(as.character(`Household Family Income`)),
     
-    # Recode numeric into income categories
+    # recoding the income categories
     inc_category = case_when(
       inc_num == 1 ~ "$0 to $5,000",
       inc_num %in% c(2,3) ~ "$5,000 to $9,999",
@@ -178,7 +195,7 @@ cps_2012.dis <- cps_2012.dis %>%
       TRUE ~ NA_character_
     ),
     
-    # Convert recoded variable to ordered factor with **unique** levels only, in order
+    # converts the recoded categories to an ordered factor
     inc_category = factor(
       inc_category,
       levels = c(
@@ -199,9 +216,9 @@ cps_2012.dis <- cps_2012.dis %>%
       ordered = TRUE
     )
   ) %>%
-  # Replace original variable with ordered factor
+  # replacing the original variable with the ordered variable
   mutate(`Household Family Income` = inc_category) %>%
-  # Remove temporary columns
+  # drop the temporary columns
   select(-inc_num, -inc_category)
 
 
@@ -516,6 +533,8 @@ cps_2019.dis <- cps_2019.dis %>%
 cps_2019.dis <- cps_2019.dis %>%
   mutate(`Education Level` = edu_category) %>%
   select(-edu_num, -edu_category)  # clean up temporary columns
+
+
 ```
 
 ##### July 2021
@@ -552,10 +571,10 @@ levels(cps_2021.dis$`Independent Living Difficulty`)[levels(cps_2021.dis$`Indepe
 # Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
 cps_2021.dis <- cps_2021.dis %>%
   mutate(
-    # Convert 'Education Level' to numeric codes for recoding
+    # converted household income to a numeric variable
     inc_num = as.numeric(as.character(`Household Family Income`)),
     
-    # Recode numeric into income categories
+    # recoded the numeric variable into income categories
     inc_category = case_when(
       inc_num == 1 ~ "$0 to $5,000",
       inc_num %in% c(2,3) ~ "$5,000 to $9,999",
@@ -573,7 +592,7 @@ cps_2021.dis <- cps_2021.dis %>%
       TRUE ~ NA_character_
     ),
     
-    # Convert recoded variable to ordered factor with **unique** levels only, in order
+    # converted the categories into an ordered factor
     inc_category = factor(
       inc_category,
       levels = c(
@@ -594,9 +613,9 @@ cps_2021.dis <- cps_2021.dis %>%
       ordered = TRUE
     )
   ) %>%
-  # Replace original variable with ordered factor
+  # replaced original variable with ordered factor
   mutate(`Household Family Income` = inc_category) %>%
-  # Remove temporary columns
+  # dropped the temporary columns
   select(-inc_num, -inc_category)
 
 # Sex
@@ -673,7 +692,7 @@ cps_2021.dis$`Race` <- races
 levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 1] <- "Hispanic"
 levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 2] <- "Non-Hispanic"
 
-# last variable to recode is education
+# Education
 cps_2021.dis <- cps_2021.dis %>%
   mutate(
     # Ensure numeric codes for comparisons
@@ -708,7 +727,7 @@ cps_2021.dis <- cps_2021.dis %>%
       ordered = TRUE
     )
   )
-#This is just replacing the old column with the new condensed one
+# This is just replacing the old column with the new condensed one
 cps_2021.dis <- cps_2021.dis %>%
   mutate(`Education Level` = edu_category) %>%
   select(-edu_num, -edu_category)  # clean up temporary columns
@@ -717,7 +736,7 @@ cps_2021.dis <- cps_2021.dis %>%
 #### Filtering for those with a disability
 ```{r}
 cps_2012.dis.yes<- subset(cps_2012.dis, cps_2012.dis$`Disability Status` == 'Yes')
-dim(cps_2012.dis.yes)
+dim(cps_2012.dis.yes) # checking the dimensions to see the sample size
 
 
 cps_2019.dis.yes<- subset(cps_2019.dis, cps_2019.dis$`Disability Status` == 'Yes')
@@ -735,8 +754,6 @@ dim(cps_2021.dis.yes)
 #### Table to compare employment status across disability types, household family income, education level, and Medicare/Medicaid status.
 
 ```{r, plot}
-library(table1) # used to make nice publication ready looking tables
-
 # function from https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html to calculate and add p-values
 # modified to include ANOVA using the help of Dartmouth ChatGPT 4.1 model
 pvalue <- function(x, ...) {
@@ -796,18 +813,12 @@ empdistable.2021 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Am
                    caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, July 2021", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
 empdistable.2021
 
-# Everything seems to have a p-value < 0.01 other than visual difficulty; maybe something is wrong with the p-value function/how the variable is coded. I'll check that later
+# Everything seems to have a p-value < 0.01 other than visual difficulty
 ```
 
 #### Visualizing the distribution of unemployed individuals by disability type
 
 ```{r}
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(viridis)
-library(scales) # this package is used for percentages
-
 # creating a function to plot employment by disability
 empdisplots <- function(data, employment_var, disability_vars, 
                                          title = NULL, caption = NULL) {
@@ -819,7 +830,7 @@ empdisplots <- function(data, employment_var, disability_vars,
   # combine and reshape to long form for plotting
   long_filt_data <- filtered_data %>%
     pivot_longer(
-      cols = all_of(disability_vars),
+      cols = all_of(disability_vars), # ensures that ALL the disability variable columns are selected
       names_to = "Disability_Type",
       values_to = "Has_Disability"
     )
@@ -829,7 +840,7 @@ empdisplots <- function(data, employment_var, disability_vars,
   
   # calculate the counts and proportions for the plot data
   plot_data <- filt_data.dis %>%
-    group_by(Disability_Type, !!sym(employment_var)) %>%
+    group_by(Disability_Type, !!sym(employment_var)) %>% # !! creates a symbol from the string so that only the name and not the value is read by R. 
     summarise(count = n(), .groups = "drop") %>%
     group_by(Disability_Type) %>%
     mutate(proportion = count / sum(count),
@@ -974,7 +985,7 @@ empincplot(
 ```
 
 #### Visualizing the distribution of unemployed individuals with disabilities by education
-
+Creating the function to plot by highest completed level of education
 ```{r}
 empeduplot <- function(data, employment_var, education_var, title = NULL, caption = NULL) {
   # Select required columns and filter out missing data
@@ -1095,7 +1106,7 @@ empyesplot <- function(data, employment_var, disability_var, title = NULL, capti
     )
 }
 ```
-
+Applying the function
 ```{r}
 # 2012
 empyesplot(
@@ -1125,6 +1136,7 @@ empyesplot(
 ### AIM 2.2: Model disability status across years to determine if disability prevalence has changed meaningfully over time in relationship to socioeconomic factors.
 
 #### Logistic regression model
+Merging the data to compare change in individuals by year
 ```{r}
 ### NOTE TO SELF, THESE ANALYSES NEED TO BE RERUN INCLUDING MEDICAID/MEDICARE DATA
 
@@ -1141,19 +1153,13 @@ cpsdata <- rbind(cps_2012.dis, cps_2019.dis, cps_2021.dis)
 cpsdata$Year <- as.factor(cpsdata$Year)
 str(cpsdata)
 
-# rename the variable names so they'll be read properly by the functions later
-cpsdata.rename <- cpsdata
-names(cpsdata.rename) <- make.names(names(cpsdata))
-#cpsdata.rename
+# relevel the variables to set the reference groups
+table(cpsdata$`Geographic Region`) # Look for the region with the greatest sample size
+cpsdata$`Geographic Region` <- relevel(cpsdata$`Geographic Region`, ref = "South") 
+# the ordered variables will use the lowest as default
+# other variables don't need releveling
 ```
-
-
-```{r}
-# need to one hot encode for categories with multiple factors/use dummy variables so that they can be processed numerically
-
-# R does it automatically, but maybe it would be worth doing it manually.
-```
-
+Don't need to one-hot code the factor variables manually, as R does it automatically using the glm function
 
 ```{r}
 # run the unadjusted model
@@ -1179,14 +1185,11 @@ summary(mod4)
 
 Calculate the odds ratios for each model
 ```{r}
-#install.packages('broom')
-library(broom) # clean up the model and extracts the aspects of the model
-
 # unadjusted
 clean_model.1 <- tidy(mod1)  # grabs the coefficients from the model
 clean_model.1 <- clean_model.1[-1, ] # remove the intercept
-clean_model.1$odds_ratio <- exp(clean_model.1$estimate)
-clean_model.1$lower_CI <- exp(clean_model.1$estimate - 1.96 * clean_model.1$std.error)
+clean_model.1$odds_ratio <- exp(clean_model.1$estimate) # calculate the odds ratio by exponentiationg
+clean_model.1$lower_CI <- exp(clean_model.1$estimate - 1.96 * clean_model.1$std.error) # calculate the confidence intervals
 clean_model.1$upper_CI <- exp(clean_model.1$estimate + 1.96 * clean_model.1$std.error)
 
 
@@ -1250,7 +1253,8 @@ recodeterms <- c(
 "SexFemale" = "Female",                       
 "`Geographic Region`Midwest" =  "Midwest",        
 "`Geographic Region`South" =  "South",        
-"`Geographic Region`West" = "West"
+"`Geographic Region`West" = "West",
+"`Geographic Region`Northeast" = "Northeast"
 )
 
 clean_model.4 <- clean_model.4 %>%
@@ -1263,7 +1267,6 @@ clean_model.4 <- clean_model.4 %>%
 # check terms again
 clean_model.4$term
 ```
-
 
 ```{r}
 # unadjusted odds ratios
@@ -1342,11 +1345,8 @@ or_ci.4 <- paste0(round(or, 2)," [", round(lower_or, 2), ", ", round(upper_or, 2
 # I manually calculated this before I knew I could extract the variables in a more efficient manner. I was having some trouble with formatting the extracted variables from the model, so I used the calculated values for the table. They should be the same values.
 ```
 
-
-
+#### Displaying the calculated odds ratios in a table
 ```{r}
-library(kableExtra)
-
 # bind the odds ratio columns
 tsORtable <- cbind(`Year` = c("2012 (ref)","2019", "2021"), `Odds Ratio [95% CI]` = or_ci.1, `Odds Ratio [95% CI]` = or_ci.2, `Odds Ratio [95% CI]` = or_ci.3, `Odds Ratio [95% CI]` = or_ci.4)
 tsORtable <- as.data.frame(tsORtable)
@@ -1367,19 +1367,13 @@ kable(tsORtable, row.names = FALSE, caption = "TABLE 2. Logistic regression anal
 
 #### Plotting the odds ratios by predictor
 ```{r}
-#install.packages('jtools')
-library(jtools)
 summ(mod1)
 summ(mod2)
 summ(mod3)
 summ(mod4)
-# MODEL FIT:
-# χ²(31) = 37977.61, p = 0.00
-# Pseudo-R² (Cragg-Uhler) = 0.23
-# Pseudo-R² (McFadden) = 0.17
-# AIC = 179687.00, BIC = 180025.36 
+# model 4 has the best model fit
 
-# I was going to use jtools summ_plot to make a forest plot, but I didn't like how it looked and it was taking too long with the fully adjusted model.
+# I was going to use jtools summ_plot() to make a forest plot, but I didn't like how it looked and it was taking too long with the fully adjusted model.
 
 # The base code for this plot was taken from here: https://ujangriswanto08.medium.com/a-beginners-guide-to-multivariate-logistic-regression-in-r-9aa3b763f564
 # I modified it so it's easier to read and so that the predictor variables are in order
@@ -1403,12 +1397,15 @@ ggplot(clean_model.4, aes(x = factor(label, levels = rev(unique(label))), y = od
       panel.grid.minor.y = element_blank(),
       plot.caption = element_text(hjust = 0, size = 8, color = "gray40")
     )
+```
 
+Display the predictors' odds ratios in a table
+```{r}
 table_data <- clean_model.4 %>%
   mutate(
-    or_ci = paste0(round(odds_ratio, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), ")"),
+    or_ci = paste0(round(odds_ratio, 2), " [", round(lower_CI, 2), ", ", round(upper_CI, 2), "]"),
     p.value.fmt = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value)),
-    label = gsub("\\$", "USD ", label)
+    label = gsub("\\$", "USD ", label) # replacing the $ with USD since it was affecting the font
   ) %>%
   select(label, or_ci, p.value.fmt) %>%
   arrange(factor(label, levels = unique(label)))
@@ -1417,6 +1414,6 @@ kable(table_data, col.names = c("Predictor", "Odds Ratio (95% CI)", "p-value"),
       booktabs = TRUE, escape = FALSE,
       caption = "Odds Ratios and p-values for Predictor Variables") %>%
   kable_styling(full_width = FALSE, position = "left") %>%
-  row_spec(0, bold = TRUE, background = "#f7f7f7")  # bold header row
+  row_spec(0, bold = TRUE, background = "#f7f7f7")
 ```
 
