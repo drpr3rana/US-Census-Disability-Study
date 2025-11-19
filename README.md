@@ -61,3 +61,18 @@ pip install -r requirements.txt
 ```
 python -m streamlit run app.py
 ```
+
+# To download datasets for R
+1. Request a U.S. Census API key if needed: https://api.census.gov/data/key_signup.html
+2. Supply the API key at line 43 of the R Markdown "Data Wrangling Final Project.Rmd"
+
+# Running "Data Wrangling Final Project.Rmd"
+Run the R Markdown "Data Wrangling Final Project.Rmd".
+
+**This file contains code that:**
+- Extracts data from the U.S. Census Bureau Current Population Survey for May 2012, July 2019, and July 2021.
+- Cleans the datasets and recodes the variables accordingly.
+- Creates a table one displaying labor-force participation in individuals with disabilities by disability status, disability type, household family income, and education for May 2012, July 2019, July 2021.
+- Plots labor-force participation in individuals with disabilities by disability status, disability type, household family income, and education for May 2012, July 2019, July 2021.
+- Fits 4 logistic regression models to predict individual disability status across the years while adjusting for household family income, education, race, sex, age, and region for May 2012, July 2019, July 2021.
+- Creates a forest plot to display odds ratios for each predictor variable included in the regression model.
