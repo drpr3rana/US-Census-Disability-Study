@@ -45,7 +45,7 @@ repo-root/
 
 **1. Clone repo and Navigate to your project folder**
 
-Clone this git repository and open a terminal (macOS/Linux) or Command Prompt/PowerShell (Windows) and change to your project directory:
+Clone this git repository and open a terminal (macOS/Linux) or Command Prompt/PowerShell (Windows) and change to the MapApp project directory:
 ```
 cd path/to/cloned/repo
 ```
