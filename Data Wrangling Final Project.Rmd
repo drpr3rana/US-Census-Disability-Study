@@ -486,6 +486,9 @@ cps_2019.dis$`Race` <- races
 levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 1] <- "Hispanic"
 levels(cps_2019.dis$Ethnicity)[levels(cps_2019.dis$Ethnicity) == 2] <- "Non-Hispanic"
 
+
+Recoding the education level and condensing it to 8 categories
+```{r}
 cps_2019.dis <- cps_2019.dis %>%
   mutate(
     # Ensure numeric codes for comparisons
@@ -736,6 +739,12 @@ dim(cps_2019.dis.yes)
 
 cps_2021.dis.yes<- subset(cps_2021.dis, cps_2021.dis$`Disability Status` == 'Yes')
 dim(cps_2021.dis.yes)
+#This is just replacing the old column with the new condensed one
+cps_2021.dis <- cps_2021.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+
+
 ```
 
 ------------------------------------------------------------------------
