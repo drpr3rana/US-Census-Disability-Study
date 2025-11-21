@@ -4,53 +4,43 @@ author: "Rhea Sarmah"
 date: "`r Sys.Date()`"
 output: html_document
 ---
-Loading packages
-```{r}
-library(car)
-library(tidyverse)
-```
 
-Read in the datasets (no longer using these data due to pulling data using the API, commented out in the event we need it again later for medicare/medicaid data)
-```{r}
-# commenting this out for now
-# 2019 dataset
-#cps2019 <- read.csv('/Users/rheasarmah/Desktop/dartmouth 2025-2026/Fall Quarter 2025/QBS 181_Data Wrangling/QBS 181_Final Project/downloaded datasets/CPS2019.csv')
-#head(cps2019)
-
-# 2021 dataset
-#cps2021 <- read.csv('/Users/rheasarmah/Desktop/dartmouth 2025-2026/Fall Quarter 2025/QBS 181_Data Wrangling/QBS 181_Final Project/downloaded datasets/CPS2021.csv')
-#head(cps2021)
-```
-
-```{r}
-# select columns
-#columns <- c("PEDISREM","PEDISEAR","PEDISPHY","PEDISEYE","PEDISDRS","PEDISOUT","HEFAMINC","PEEDUCA","PEMLR","PRUNEDUR","PRUNTYPE","PESD197","PESD198","PTDTRACE","PESEX","PRTAGE","GEREG")
-
-#cps2019_col <- cps2019[,columns]
-#cps2021_col <- cps2019[,columns]
-
-#dim(cps2019_col)
-#dim(cps2021_col)
-# now we have only the columns we need
-```
-
-Installing cpsR and IPUMS to pull the data
+Install and load all the necessary libraries
 ```{r}
 # uncomment these out if these packages are not installed!
-#install.packages('cpsR')
-#install.packages('ipumsr')
-library(cpsR)
+#install.packages(c('cpsR', 'ipumsr', 'tidyverse', 'table1', 'ggplot2','scales','viridis','broom','kableExtra','jtools'))
+
+# load the libraries
+library(cpsR) # used to extract the data
 library(ipumsr)
+library(tidyverse) # clean and recode the data
+library(table1) # used to make nice publication ready looking tables
+library(ggplot2) # used to make the plots
+library(scales) # used to format percentages for the plots
+library(viridis) # colorblind friendly color schemes
+library(broom) # clean up the log reg model and extracts the aspects of the model
+library(kableExtra) # make publication-ready tables
+library(jtools) # see the model fit of the log reg models
+```
 
+------------------------------------------------------------------------
+### Pulling the Data
+
+#### Extracting the basic data using cpsR and ipumsr
+
+Set the API key
+```{r}
 # set the API key here
-
+census_api_key("8f4b8714d231e772d84e533d364329314747e556", install = T, overwrite = TRUE)
 
 # checking my API key
 Sys.getenv("CENSUS_API_KEY")
+```
 
-
+Extract the data
+```{r}
 # assigning desired column names to a list
-lowercols <- c("prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","prunedur","pruntype",
+lowercols <- c("hrhhid", "hrhhid2", "prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","prunedur","pruntype",
                #"hinscaid", # trying a bunch of different variable names for medicare/medicaid
                #"pesd198", this is medicare and medicaid data which is not included in the CPS by month
                "ptdtrace", "pehspnon",
@@ -71,13 +61,11 @@ head(cps_2019)
 # July 2021
 cps_2021 <- get_basic(year = 2021, month = 7, vars = lowercols)
 head(cps_2021)
-
-# pulling the CPS data from July 2015, just to see if it works. It does! If we need more time periods for whatever reason, we have access
-# cps_2015 <- get_basic(year = 2015, month = 7, vars = lowercols)
-# head(cps_2015)
-# commenting this out for now, we won't be using the 2015 data and pulling this data takes extra time
 ```
-Clean the data! Drop rows with missing data, with the exception of continuous variables, where we can use conditional filtering.
+### Cleaning the Data
+
+#### Drop rows with missing data, with the exception of continuous variables, where we can use conditional filtering.
+
 ```{r}
 # 2012
 # first filter for the continuous questions
@@ -86,10 +74,10 @@ cps_2012.clean <- cps_2012 %>%
     (prempnot == 2 & prunedur >= 0 & pruntype >= 0) | # unemployed individuals
     (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing data in the unemployed questions
   )
-# subset based on who has said yes to the prdisflg aka the disability flag, our population of interest
-cps_2012.dis<- subset(cps_2012.clean, cps_2012.clean$prdisflg == 1)
+# filtering for those who answered the disability question
+cps_2012.dis<- subset(cps_2012.clean, cps_2012.clean$prdisflg != -1)
 dim(cps_2012.dis)
-# n = 12727
+# n = 106196
 
 # 2012
 cps_2019.clean <- cps_2019 %>%
@@ -97,9 +85,10 @@ cps_2019.clean <- cps_2019 %>%
     (prempnot == 2 & prunedur >= 0 & pruntype >= 0) |# unemployed
     (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing codes
   )
-cps_2019.dis<- subset(cps_2019.clean, cps_2019.clean$prdisflg == 1)
+# filtering for those who answered the disability question
+cps_2019.dis<- subset(cps_2019.clean, cps_2019.clean$prdisflg != -1)
 dim(cps_2019.dis)
-# n = 11953
+# n = 95593
 
 # 2021
 cps_2021.clean <- cps_2021 %>%
@@ -107,37 +96,40 @@ cps_2021.clean <- cps_2021 %>%
     (prempnot == 2 & prunedur >= 0 & pruntype >= 0) |# unemployed
     (prempnot != 2 & prunedur == -1 & pruntype == -1) # non-unemployed with expected missing codes
   )
-cps_2021.dis<- subset(cps_2021.clean, cps_2021.clean$prdisflg == 1)
+# filtering for those who answered the disability question
+cps_2021.dis<- subset(cps_2021.clean, cps_2021.clean$prdisflg != -1)
 dim(cps_2021.dis)
-# n = 11410
+# n = 87075
 
-# Could be made more efficient with a for loop, but I will work on that later, feel free to optimize
+# saving the filtering for disability after everything is cleaned to make things easier when merging for statistical analysis.
 ```
 
-Renaming the columns appropriately
+#### Renaming the columns to be meaningful.
+
 ```{r}
 # convert necessary variables to factors.
+# defining the columns which need to be turned into factors
 factorcols <- c("prdisflg", "pedisrem","pedisear","pedisphy","pediseye","pedisdrs","pedisout","hefaminc","peeduca","prempnot","pruntype","ptdtrace","pehspnon", "pesex","gereg")
 # note: medicare and medicaid data are not included in the basic CPS data
 
-# this could be made more efficient with a for loop (feel free to optimize)
+# applying as.factor to the list of columns
 cps_2012.dis[factorcols] <- lapply(cps_2012.dis[factorcols], as.factor)
 cps_2019.dis[factorcols] <- lapply(cps_2019.dis[factorcols], as.factor)
 cps_2021.dis[factorcols] <- lapply(cps_2021.dis[factorcols], as.factor)
 
 # rename the columns
-col_rename_map <- c(`Disability Status` = "prdisflg", `Cognitive Difficulty` = "pedisrem", `Hearing Difficulty` = "pedisear", `Ambulatory Difficulty` = "pedisphy", `Visual Difficulty` = "pediseye", `Self-Care Difficulty` = "pedisdrs", `Independent Living Difficulty` = "pedisout",`Household Family Income` = "hefaminc", `Education Level` = "peeduca", `Employment Status` = "prempnot", `Duration of Unemployment` = "prunedur", `Reason for Unemployment` = "pruntype", `Race` = "ptdtrace", `Ethnicity` = "pehspnon", `Sex` = "pesex", `Age` = "prtage", `Geographic Region` = "gereg")
+col_rename<- c(`Disability Status` = "prdisflg", `Cognitive Difficulty` = "pedisrem", `Hearing Difficulty` = "pedisear", `Ambulatory Difficulty` = "pedisphy", `Visual Difficulty` = "pediseye", `Self-Care Difficulty` = "pedisdrs", `Independent Living Difficulty` = "pedisout",`Household Family Income` = "hefaminc", `Education Level` = "peeduca", `Employment Status` = "prempnot", `Duration of Unemployment` = "prunedur", `Reason for Unemployment` = "pruntype", `Race` = "ptdtrace", `Ethnicity` = "pehspnon", `Sex` = "pesex", `Age` = "prtage", `Geographic Region` = "gereg")
 
-cps_2012.dis <- cps_2012.dis %>% rename(!!!col_rename_map) # the !!! tells tidyverse to supply multiple arguments as a list
-cps_2019.dis <- cps_2019.dis %>% rename(!!!col_rename_map)
-cps_2021.dis <- cps_2021.dis %>% rename(!!!col_rename_map) 
+cps_2012.dis <- cps_2012.dis %>% rename(!!!col_rename) # the !!! tells tidyverse to supply multiple arguments as a list
+cps_2019.dis <- cps_2019.dis %>% rename(!!!col_rename)
+cps_2021.dis <- cps_2021.dis %>% rename(!!!col_rename) 
 
-str(cps_2012.dis)
+# str(cps_2012.dis)
 ```
 
-Recoding the values for the variables. (This is going to be extremely messy!!! PLEASE feel free to optimize it!!!! I don't know how to do it more efficiently and actually have it work)
+#### Recoding the levels of the variables
+##### May 2012
 
-May 2012
 ```{r}
 # Disability Flag
 levels(cps_2012.dis$`Disability Status`)[levels(cps_2012.dis$`Disability Status`) == 1] <- "Yes"
@@ -169,26 +161,57 @@ levels(cps_2012.dis$`Independent Living Difficulty`)[levels(cps_2012.dis$`Indepe
 
 # Household Income
 # Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
-hf_income <- cps_2012.dis$`Household Family Income`
-levels(hf_income) <- c(
-  "$0 to $5,000",
-  "$5,000 to $9,999",
-  "$5,000 to $9,999",           # combining 2 and 3
-  "$10,000 to $14,999",
-  "$10,000 to $14,999",         # combining 4 and 5
-  "$15,000 to $19,999",
-  "$20,000 to $24,999",
-  "$25,000 to $29,999",
-  "$30,000 to $34,999",
-  "$35,000 to $39,999",
-  "$40,000 to $49,999",
-  "$50,000 to $74,999",
-  "$50,000 to $74,999",         # combining 12 and 13
-  "$75,000 to $99,999",
-  "$100,000 to $149,999",
-  "$150,000 and Over"
-)
-cps_2012.dis$`Household Family Income` <- hf_income
+
+# I based this code off of Prerana's education recoding.
+cps_2012.dis <- cps_2012.dis %>%
+  mutate(
+    # converting household family income to numeric 
+    inc_num = as.numeric(as.character(`Household Family Income`)),
+    
+    # recoding the income categories
+    inc_category = case_when(
+      inc_num == 1 ~ "$0 to $5,000",
+      inc_num %in% c(2,3) ~ "$5,000 to $9,999",
+      inc_num %in% c(4,5) ~ "$10,000 to $14,999",
+      inc_num == 6 ~ "$15,000 to $19,999",
+      inc_num == 7 ~ "$20,000 to $24,999",
+      inc_num == 8 ~ "$25,000 to $29,999",
+      inc_num == 9 ~ "$30,000 to $34,999",
+      inc_num == 10 ~ "$35,000 to $39,999",
+      inc_num == 11 ~ "$40,000 to $49,999",
+      inc_num %in% c(12, 13) ~ "$50,000 to $74,999",
+      inc_num == 14 ~ "$75,000 to $99,999",
+      inc_num == 15 ~ "$100,000 to $149,999",
+      inc_num == 16 ~ "$150,000 and Over",
+      TRUE ~ NA_character_
+    ),
+    
+    # converts the recoded categories to an ordered factor
+    inc_category = factor(
+      inc_category,
+      levels = c(
+        "$0 to $5,000",
+        "$5,000 to $9,999",
+        "$10,000 to $14,999",
+        "$15,000 to $19,999",
+        "$20,000 to $24,999",
+        "$25,000 to $29,999",
+        "$30,000 to $34,999",
+        "$35,000 to $39,999",
+        "$40,000 to $49,999",
+        "$50,000 to $74,999",
+        "$75,000 to $99,999",
+        "$100,000 to $149,999",
+        "$150,000 and Over"
+      ),
+      ordered = TRUE
+    )
+  ) %>%
+  # replacing the original variable with the ordered variable
+  mutate(`Household Family Income` = inc_category) %>%
+  # drop the temporary columns
+  select(-inc_num, -inc_category)
+
 
 # Sex
 levels(cps_2012.dis$Sex)[levels(cps_2012.dis$Sex) == 1] <- "Male"
@@ -236,7 +259,7 @@ levels(races) <- c(
 "American Indian, Alaskan Native",
 "Asian",
 "Hawaiian/Pacific Islander",
-"Mixed Race",
+"Mixed Race", # reassigning all mixed race combination variables to be referred to as mixed race
 "Mixed Race",
 "Mixed Race",
 "Mixed Race",
@@ -260,11 +283,12 @@ levels(races) <- c(
 )
 cps_2012.dis$`Race` <- races
 
+# Hispanic vs. Non-Hispanic was separate from the race column, so we chose to define it as ethnicity and by Hispanic/Non-Hispanic as to not lose this info
 levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 1] <- "Hispanic"
 levels(cps_2012.dis$Ethnicity)[levels(cps_2012.dis$Ethnicity) == 2] <- "Non-Hispanic"
 ```
 
-Recoding the education level and condesing it to 8 categories
+Recoding the education level and condensing it to 8 categories:
 
 ```{r}
 cps_2012.dis <- cps_2012.dis %>%
@@ -307,7 +331,8 @@ cps_2012.dis <- cps_2012.dis %>%
   select(-edu_num, -edu_category)  # clean up temporary columns
 
 ```
-July 2019
+
+##### July 2019
 ```{r}
 # Disability Flag
 levels(cps_2019.dis$`Disability Status`)[levels(cps_2019.dis$`Disability Status`) == 1] <- "Yes"
@@ -339,26 +364,54 @@ levels(cps_2019.dis$`Independent Living Difficulty`)[levels(cps_2019.dis$`Indepe
 
 # Household Income
 # Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
-hf_income <- cps_2019.dis$`Household Family Income`
-levels(hf_income) <- c(
-  "$0 to $5,000",
-  "$5,000 to $9,999",
-  "$5,000 to $9,999",           # combining 2 and 3
-  "$10,000 to $14,999",
-  "$10,000 to $14,999",         # combining 4 and 5
-  "$15,000 to $19,999",
-  "$20,000 to $24,999",
-  "$25,000 to $29,999",
-  "$30,000 to $34,999",
-  "$35,000 to $39,999",
-  "$40,000 to $49,999",
-  "$50,000 to $74,999",
-  "$50,000 to $74,999",         # combining 12 and 13
-  "$75,000 to $99,999",
-  "$100,000 to $149,999",
-  "$150,000 and Over"
-)
-cps_2019.dis$`Household Family Income` <- hf_income
+cps_2019.dis <- cps_2019.dis %>%
+  mutate(
+    # Convert 'Education Level' to numeric codes for recoding
+    inc_num = as.numeric(as.character(`Household Family Income`)),
+    
+    # Recode numeric into income categories
+    inc_category = case_when(
+      inc_num == 1 ~ "$0 to $5,000",
+      inc_num %in% c(2,3) ~ "$5,000 to $9,999",
+      inc_num %in% c(4,5) ~ "$10,000 to $14,999",
+      inc_num == 6 ~ "$15,000 to $19,999",
+      inc_num == 7 ~ "$20,000 to $24,999",
+      inc_num == 8 ~ "$25,000 to $29,999",
+      inc_num == 9 ~ "$30,000 to $34,999",
+      inc_num == 10 ~ "$35,000 to $39,999",
+      inc_num == 11 ~ "$40,000 to $49,999",
+      inc_num %in% c(12, 13) ~ "$50,000 to $74,999",
+      inc_num == 14 ~ "$75,000 to $99,999",
+      inc_num == 15 ~ "$100,000 to $149,999",
+      inc_num == 16 ~ "$150,000 and Over",
+      TRUE ~ NA_character_
+    ),
+    
+    # Convert recoded variable to ordered factor with **unique** levels only, in order
+    inc_category = factor(
+      inc_category,
+      levels = c(
+        "$0 to $5,000",
+        "$5,000 to $9,999",
+        "$10,000 to $14,999",
+        "$15,000 to $19,999",
+        "$20,000 to $24,999",
+        "$25,000 to $29,999",
+        "$30,000 to $34,999",
+        "$35,000 to $39,999",
+        "$40,000 to $49,999",
+        "$50,000 to $74,999",
+        "$75,000 to $99,999",
+        "$100,000 to $149,999",
+        "$150,000 and Over"
+      ),
+      ordered = TRUE
+    )
+  ) %>%
+  # Replace original variable with ordered factor
+  mutate(`Household Family Income` = inc_category) %>%
+  # Remove temporary columns
+  select(-inc_num, -inc_category)
 
 # Sex
 levels(cps_2019.dis$Sex)[levels(cps_2019.dis$Sex) == 1] <- "Male"
@@ -478,7 +531,7 @@ cps_2019.dis <- cps_2019.dis %>%
 
 ```
 
-July 2021
+##### July 2021
 ```{r}
 # Disability Flag
 levels(cps_2021.dis$`Disability Status`)[levels(cps_2021.dis$`Disability Status`) == 1] <- "Yes"
@@ -510,32 +563,61 @@ levels(cps_2021.dis$`Independent Living Difficulty`)[levels(cps_2021.dis$`Indepe
 
 # Household Income
 # Adjusted the bins for household income. Below $50,000 a year was separated by every $5000 dollar increments. Above $50,000 was done by $25,000 dollar increments. We chose to do it this way because at low incomes, the intervals can be more informative compared to at higher incomes
-hf_income <- cps_2021.dis$`Household Family Income`
-levels(hf_income) <- c(
-  "$0 to $5,000",
-  "$5,000 to $9,999",
-  "$5,000 to $9,999",           # combining 2 and 3
-  "$10,000 to $14,999",
-  "$10,000 to $14,999",         # combining 4 and 5
-  "$15,000 to $19,999",
-  "$20,000 to $24,999",
-  "$25,000 to $29,999",
-  "$30,000 to $34,999",
-  "$35,000 to $39,999",
-  "$40,000 to $49,999",
-  "$50,000 to $74,999",
-  "$50,000 to $74,999",         # combining 12 and 13
-  "$75,000 to $99,999",
-  "$100,000 to $149,999",
-  "$150,000 and Over"
-)
-cps_2021.dis$`Household Family Income` <- hf_income
+cps_2021.dis <- cps_2021.dis %>%
+  mutate(
+    # converted household income to a numeric variable
+    inc_num = as.numeric(as.character(`Household Family Income`)),
+    
+    # recoded the numeric variable into income categories
+    inc_category = case_when(
+      inc_num == 1 ~ "$0 to $5,000",
+      inc_num %in% c(2,3) ~ "$5,000 to $9,999",
+      inc_num %in% c(4,5) ~ "$10,000 to $14,999",
+      inc_num == 6 ~ "$15,000 to $19,999",
+      inc_num == 7 ~ "$20,000 to $24,999",
+      inc_num == 8 ~ "$25,000 to $29,999",
+      inc_num == 9 ~ "$30,000 to $34,999",
+      inc_num == 10 ~ "$35,000 to $39,999",
+      inc_num == 11 ~ "$40,000 to $49,999",
+      inc_num %in% c(12, 13) ~ "$50,000 to $74,999",
+      inc_num == 14 ~ "$75,000 to $99,999",
+      inc_num == 15 ~ "$100,000 to $149,999",
+      inc_num == 16 ~ "$150,000 and Over",
+      TRUE ~ NA_character_
+    ),
+    
+    # converted the categories into an ordered factor
+    inc_category = factor(
+      inc_category,
+      levels = c(
+        "$0 to $5,000",
+        "$5,000 to $9,999",
+        "$10,000 to $14,999",
+        "$15,000 to $19,999",
+        "$20,000 to $24,999",
+        "$25,000 to $29,999",
+        "$30,000 to $34,999",
+        "$35,000 to $39,999",
+        "$40,000 to $49,999",
+        "$50,000 to $74,999",
+        "$75,000 to $99,999",
+        "$100,000 to $149,999",
+        "$150,000 and Over"
+      ),
+      ordered = TRUE
+    )
+  ) %>%
+  # replaced original variable with ordered factor
+  mutate(`Household Family Income` = inc_category) %>%
+  # dropped the temporary columns
+  select(-inc_num, -inc_category)
 
 # Sex
 levels(cps_2021.dis$Sex)[levels(cps_2021.dis$Sex) == 1] <- "Male"
 levels(cps_2021.dis$Sex)[levels(cps_2021.dis$Sex) == 2] <- "Female"
 
 # Employment Status
+# We chose to aggregate both "Not in Labor Force" options, but kept them distinct from "Unemployed"
 levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 1] <- "Employed"
 levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 2] <- "Unemployed"
 levels(cps_2021.dis$`Employment Status`)[levels(cps_2021.dis$`Employment Status`) == 3] <- "Not in Labor Force" # not in labor force due to it being discouraged
@@ -604,9 +686,7 @@ cps_2021.dis$`Race` <- races
 levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 1] <- "Hispanic"
 levels(cps_2021.dis$Ethnicity)[levels(cps_2021.dis$Ethnicity) == 2] <- "Non-Hispanic"
 
-# last variable to recode is education
-Recoding the education level and condensing it to 8 categories
-```{r}
+# Education
 cps_2021.dis <- cps_2021.dis %>%
   mutate(
     # Ensure numeric codes for comparisons
@@ -641,6 +721,24 @@ cps_2021.dis <- cps_2021.dis %>%
       ordered = TRUE
     )
   )
+# This is just replacing the old column with the new condensed one
+cps_2021.dis <- cps_2021.dis %>%
+  mutate(`Education Level` = edu_category) %>%
+  select(-edu_num, -edu_category)  # clean up temporary columns
+```
+
+#### Filtering for those with a disability
+```{r}
+cps_2012.dis.yes<- subset(cps_2012.dis, cps_2012.dis$`Disability Status` == 'Yes')
+dim(cps_2012.dis.yes) # checking the dimensions to see the sample size
+
+
+cps_2019.dis.yes<- subset(cps_2019.dis, cps_2019.dis$`Disability Status` == 'Yes')
+dim(cps_2019.dis.yes)
+
+
+cps_2021.dis.yes<- subset(cps_2021.dis, cps_2021.dis$`Disability Status` == 'Yes')
+dim(cps_2021.dis.yes)
 #This is just replacing the old column with the new condensed one
 cps_2021.dis <- cps_2021.dis %>%
   mutate(`Education Level` = edu_category) %>%
@@ -649,11 +747,13 @@ cps_2021.dis <- cps_2021.dis %>%
 
 ```
 
-Make a table looking at how factors differ across those in the labor force and those who arent
-```{r, plot}
-library(table1)
-# maybe we can combine all disability columns into 1? no, this loses information about participants with multiple disabilities
+------------------------------------------------------------------------
 
+### AIM 1.2: Investigate and visualize how labor-force participation varies by disability type, income, education, and participation in assistance programs (Medicaid, SSI etc.) 
+
+#### Table to compare employment status across disability types, household family income, education level, and Medicare/Medicaid status.
+
+```{r, plot}
 # function from https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html to calculate and add p-values
 # modified to include ANOVA using the help of Dartmouth ChatGPT 4.1 model
 pvalue <- function(x, ...) {
@@ -667,7 +767,7 @@ y <- factor(unlist(lapply(x, as.character)))
 y <- unlist(x)
 }
 
-# group labels
+# group labels together
 g <- factor(rep(seq_along(x), times = sapply(x, length)))
 
 # remove missing values pairwise
@@ -696,79 +796,625 @@ c("", sub("<", "&lt;", format.pval(p, digits = 3, eps = 0.001)))
 }
 
 # 2012 data
-empdistable.2012 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2012.dis,
+empdistable.2012 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2012.dis.yes,
                    extra.col=c(`P-value`=pvalue),
                    caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, May 2012", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
 empdistable.2012
 
 # 2019 data
-empdistable.2019 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2019.dis,
+empdistable.2019 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2019.dis.yes,
                    extra.col=c(`P-value`=pvalue),
                    caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, July 2019", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
 empdistable.2019
 
 # 2021 data
-empdistable.2021 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2021.dis,
+empdistable.2021 <- table1(~ `Cognitive Difficulty` + `Hearing Difficulty` + `Ambulatory Difficulty` + `Visual Difficulty` + `Self-Care Difficulty` + `Independent Living Difficulty` + `Household Family Income` + `Education Level`| `Employment Status`, data = cps_2021.dis.yes,
                    extra.col=c(`P-value`=pvalue),
                    caption = "Socioeconomic Factors by Employment Status in Individuals with Disabilities, United States, July 2021", footnote = "P-values for categorical variables were calculated using the chi-squared test. If assumptions for the chi-squared test were not satisfied, Fisher's exact test was used. P-values for continuous variables with two categories were calculated using Welch's t-test, and p-values for continuous variables with multiple categories were calculated using Welch's ANOVA.")
 empdistable.2021
 
-# Everything seems to have a p-value < 0.01 other than visual difficulty; maybe something is wrong with the p-value function/how the variable is coded. I'll check that later
-# still needs education to be recoded
+# Everything seems to have a p-value < 0.01 other than visual difficulty
 ```
 
-Visualizing the distribution of unemployed individuals by disability type, 2012
+#### Visualizing the distribution of unemployed individuals by disability type
+
 ```{r}
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(viridis)
+# creating a function to plot employment by disability
+empdisplots <- function(data, employment_var, disability_vars, 
+                                         title = NULL, caption = NULL) {
+  
+  # select needed columns
+  filtered_data <- data %>%
+    select(all_of(c(employment_var, disability_vars)))
+  
+  # combine and reshape to long form for plotting
+  long_filt_data <- filtered_data %>%
+    pivot_longer(
+      cols = all_of(disability_vars), # ensures that ALL the disability variable columns are selected
+      names_to = "Disability_Type",
+      values_to = "Has_Disability"
+    )
+  
+  # filter for those who have disabilities
+  filt_data.dis <- long_filt_data %>% filter(Has_Disability == "Yes")
+  
+  # calculate the counts and proportions for the plot data
+  plot_data <- filt_data.dis %>%
+    group_by(Disability_Type, !!sym(employment_var)) %>% # !! creates a symbol from the string so that only the name and not the value is read by R. 
+    summarise(count = n(), .groups = "drop") %>%
+    group_by(Disability_Type) %>%
+    mutate(proportion = count / sum(count),
+           prop_label = scales::percent(proportion, accuracy = 0.1)) %>% # making the percentages for the labels
+    ungroup() %>%
+    # removing difficulty from the name for concision
+    mutate(Disability_Type = sub(" Difficulty", "", Disability_Type))
+  
+  # using ggplot to create the plot
+  ggplot(plot_data, aes(x = Disability_Type, y = proportion, fill = !!sym(employment_var))) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+    geom_text(aes(label = prop_label),
+              position = position_dodge(width = 0.8),
+              vjust = -0.3,
+              size = 3) +
+    scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      x = "Disability Type",
+      y = "Proportion",
+      fill = "Employment Status",
+      title = title,
+      caption = caption
+    ) +
+    scale_fill_manual(values = plasma(3, direction = -1, begin = 0.15, end = 0.85)) +
+    theme_minimal() +
+    theme( # I used this theme from Prerana's code for consistency
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 11, color = "gray30"),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      legend.text = element_text(size = 10),
+      axis.text.x = element_text(size = 10),
+      axis.text.y = element_text(size = 10),
+      axis.title.y = element_text(face = "bold", size = 11),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      plot.caption = element_text(hjust = 0, size = 8, color = "gray40")
+    )
+}
+```
 
-# The following data was written using AI, I plan to rewrite this later
+Plotting employment status by disability type for each year
 
+```{r}
 employment_var <- "Employment Status"
 disability_vars <- c(
-  "Disability Status",
   "Cognitive Difficulty",
   "Hearing Difficulty",
   "Ambulatory Difficulty",
   "Visual Difficulty",
-  "Self-Care Difficulty"
+  "Self-Care Difficulty",
+  "Independent Living Difficulty"
 )
 
-# select the needed columns
-df <- cps_2012.dis %>%
-  select(all_of(c(employment_var, disability_vars)))
+# 2012
+empdisplots(
+  cps_2012.dis.yes, employment_var, disability_vars,
+  title = "Employment Status in Individuals with Disabilities by Disability\nType, May 2012",
+  caption = "Community Population Survey, May 2012.\nColorblind-friendly palette."
+)
 
-# reshaping the data using pivot longer
-df_long <- df %>%
-  pivot_longer(
-    cols = all_of(disability_vars),
-    names_to = "Disability_Type",
-    values_to = "Has_Disability"
+# 2019
+empdisplots(
+  cps_2019.dis.yes, employment_var, disability_vars,
+  title = "Employment Status in Individuals with Disabilities by Disability\nType, July 2019",
+  caption = "Community Population Survey, July 2019.\nColorblind-friendly palette."
+)
+
+# 2021
+empdisplots(
+  cps_2021.dis.yes, employment_var, disability_vars,
+  title = "Employment Status in Individuals with Disabilities by Disability\nType, July 2021",
+  caption = "Community Population Survey, July 2021.\nColorblind-friendly palette."
+)
+```
+
+#### Visualizing the distribution of unemployed individuals with disabilities by household family income
+
+```{r}
+empincplot <- function(data, employment_var, income_var, title = NULL, caption = NULL) {
+  filtered_data <- data %>%
+    select(all_of(c(employment_var, income_var))) %>%
+    filter(!is.na(.data[[employment_var]]), !is.na(.data[[income_var]])) # remove NA variables
+  
+  # Calculate proportions by income group and employment status
+  plot_data <- filtered_data %>%
+    group_by(!!sym(income_var), !!sym(employment_var)) %>%
+    summarise(count = n(), .groups = "drop") %>%
+    group_by(!!sym(income_var)) %>%
+    mutate(proportion = count / sum(count),
+           prop_label = scales::percent(proportion, accuracy = 0.1)) %>% # making the percentages for the labels
+    ungroup()
+  
+  # If income_var is character, convert to factor and order (optional)
+  # Here you might want to set levels explicitly to preserve order - update as needed.
+  
+  ggplot(plot_data, aes(x = !!sym(income_var), y = proportion, color = !!sym(employment_var), group = !!sym(employment_var))) +
+    geom_line(size = 1) +
+    geom_point(size = 2) +
+    scale_y_continuous(labels = percent_format()) +
+    labs(
+      x = "Household Family Income",
+      y = "Proportion",
+      color = "Employment Status",
+      title = title,
+      caption = caption
+    ) +
+    scale_color_manual(values = plasma(3, direction = -1, begin = 0.15, end = 0.85)) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      legend.text = element_text(size = 10),
+      axis.text.x = element_text(angle = 25, hjust = 1, size = 9),
+      axis.text.y = element_text(size = 10),
+      axis.title.y = element_text(face = "bold", size = 11),
+      panel.grid.minor = element_blank(),
+      plot.caption = element_text(hjust = 0, size = 8, color = "gray40")
+    )
+}
+```
+
+Apply the function for household family income
+
+```{r}
+empincplot(
+  cps_2012.dis.yes, "Employment Status", "Household Family Income",
+  title = "Employment Status in Individuals with Disabilities by Household\nFamily Income, May 2012",
+  caption = "Community Population Survey, May 2012.\nColorblind-friendly palette."
+)
+empincplot(
+  cps_2019.dis.yes, "Employment Status", "Household Family Income",
+  title = "Employment Status in Individuals with Disabilities by Household\nFamily Income, July 2019",
+  caption = "Community Population Survey, July 2019.\nColorblind-friendly palette."
+)
+empincplot(
+  cps_2021.dis.yes, "Employment Status", "Household Family Income",
+  title = "Employment Status in Individuals with Disabilities by Household\nFamily Income, July 2021",
+  caption = "Community Population Survey, July 2021.\nColorblind-friendly palette."
+)
+```
+
+#### Visualizing the distribution of unemployed individuals with disabilities by education
+Creating the function to plot by highest completed level of education
+```{r}
+empeduplot <- function(data, employment_var, education_var, title = NULL, caption = NULL) {
+  # Select required columns and filter out missing data
+  filtered_data <- data %>%
+    select(all_of(c(employment_var, education_var))) %>%
+    filter(!is.na(.data[[employment_var]]), !is.na(.data[[education_var]]))
+  
+  # Calculate counts and proportions
+  plot_data <- filtered_data %>%
+    group_by(!!sym(education_var), !!sym(employment_var)) %>%
+    summarise(count = n(), .groups = "drop") %>%
+    group_by(!!sym(education_var)) %>%
+    mutate(proportion = count / sum(count),
+           prop_label = scales::percent(proportion, accuracy = 0.1)) %>% # making the percentages for the labels
+    ungroup()
+  
+  # Plot
+  ggplot(plot_data, aes(x = !!sym(education_var), y = proportion, fill = !!sym(employment_var))) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+    geom_text(aes(label = prop_label),
+              position = position_dodge(width = 0.8),
+              vjust = -0.3,
+              size = 3) +
+    scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      x = "Highest Level of Completed Education",
+      y = "Proportion",
+      fill = "Employment Status",
+      title = title,
+      caption = caption
+    ) +
+    scale_fill_manual(values = plasma(3, direction = -1, begin = 0.15, end = 0.85)) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      legend.text = element_text(size = 10),
+      axis.text.x = element_text(size = 10, angle = 25, hjust = 1),
+      axis.text.y = element_text(size = 10),
+      axis.title.y = element_text(face = "bold", size = 11),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      plot.caption = element_text(hjust = 0, size = 8, color = "gray40")
+    )
+}
+```
+
+Applying the education function
+
+```{r}
+# 2012
+empeduplot(
+  cps_2012.dis.yes, "Employment Status", "Education Level",
+  title = "Employment Status in Individuals with Disabilities by Highest\nLevel of Completed Education, May 2012",
+  caption = "Community Population Survey, May 2012.\nColorblind-friendly palette."
+)
+
+# 2019
+empeduplot(
+  cps_2019.dis.yes, "Employment Status", "Education Level",
+  title = "Employment Status in Individuals with Disabilities by Highest\nLevel of Completed Education, July 2019",
+  caption = "Community Population Survey, July 2019.\nColorblind-friendly palette."
+)
+
+# 2021
+empeduplot(
+  cps_2021.dis.yes, "Employment Status", "Education Level",
+  title = "Employment Status in Individuals with Disabilities by Highest\nLevel of Completed Education, July 2021",
+  caption = "Community Population Survey, July 2021.\nColorblind-friendly palette."
+)
+```
+#### Making a plot to look at disability status and employment overall
+```{r}
+empyesplot <- function(data, employment_var, disability_var, title = NULL, caption = NULL) {
+  # Select required columns and filter out missing data
+  filtered_data <- data %>%
+    select(all_of(c(employment_var, disability_var))) %>%
+    filter(!is.na(.data[[employment_var]]), !is.na(.data[[disability_var]]))
+  
+  # Calculate counts and proportions
+  plot_data <- filtered_data %>%
+    group_by(!!sym(disability_var), !!sym(employment_var)) %>%
+    summarise(count = n(), .groups = "drop") %>%
+    group_by(!!sym(disability_var)) %>%
+    mutate(proportion = count / sum(count),
+           prop_label = scales::percent(proportion, accuracy = 0.1)) %>% # making the percentages for the labels
+    ungroup()
+  
+  # Plot
+  ggplot(plot_data, aes(x = !!sym(disability_var), y = proportion, fill = !!sym(employment_var))) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+    geom_text(aes(label = prop_label),
+              position = position_dodge(width = 0.8),
+              vjust = -0.3,
+              size = 3) +
+    scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      x = "Disability Status",
+      y = "Proportion",
+      fill = "Employment Status",
+      title = title,
+      caption = caption
+    ) +
+    scale_fill_manual(values = plasma(3, direction = -1, begin = 0.15, end = 0.85)) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      legend.text = element_text(size = 10),
+      axis.text.x = element_text(size = 10, hjust = 1),
+      axis.text.y = element_text(size = 10),
+      axis.title.y = element_text(face = "bold", size = 11),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      plot.caption = element_text(hjust = 0, size = 8, color = "gray40")
+    )
+}
+```
+Applying the function
+```{r}
+# 2012
+empyesplot(
+  cps_2012.dis, "Employment Status", "Disability Status",
+  title = "Employment Status in Individuals with Disabilities, May 2012",
+  caption = "Community Population Survey, May 2012.\nColorblind-friendly palette."
+)
+
+# 2019
+empyesplot(
+  cps_2019.dis, "Employment Status", "Disability Status",
+  title = "Employment Status in Individuals with Disabilities, July 2019",
+  caption = "Community Population Survey, July 2019.\nColorblind-friendly palette."
+)
+
+# 2021
+empyesplot(
+  cps_2021.dis, "Employment Status", "Disability Status",
+  title = "Employment Status in Individuals with Disabilities, July 2021",
+  caption = "Community Population Survey, July 2021.\nColorblind-friendly palette."
+)
+```
+
+
+------------------------------------------------------------------------
+
+### AIM 2.2: Model disability status across years to determine if disability prevalence has changed meaningfully over time in relationship to socioeconomic factors.
+
+#### Logistic regression model
+Merging the data to compare change in individuals by year
+```{r}
+### NOTE TO SELF, THESE ANALYSES NEED TO BE RERUN INCLUDING MEDICAID/MEDICARE DATA
+
+# merge the data first
+# add a year column
+cps_2012.dis$Year <- 2012
+cps_2019.dis$Year <- 2019
+cps_2021.dis$Year <- 2021
+
+# merged dataset
+cpsdata <- rbind(cps_2012.dis, cps_2019.dis, cps_2021.dis)
+
+# convert year to factor
+cpsdata$Year <- as.factor(cpsdata$Year)
+str(cpsdata)
+
+# relevel the variables to set the reference groups
+table(cpsdata$`Geographic Region`) # Look for the region with the greatest sample size
+cpsdata$`Geographic Region` <- relevel(cpsdata$`Geographic Region`, ref = "South") 
+# the ordered variables will use the lowest as default
+# other variables don't need releveling
+```
+Don't need to one-hot code the factor variables manually, as R does it automatically using the glm function
+
+```{r}
+# run the unadjusted model
+mod1 <- glm(`Disability Status` ~ Year, family=binomial(link=logit), # creates log reg model
+           data=cpsdata)
+summary(mod1) 
+
+# adjust for covariates
+mod2 <- glm(`Disability Status` ~ Year + `Household Family Income` + `Education Level`, family=binomial(link=logit), # creates log reg model
+           data=cpsdata)
+summary(mod2) 
+
+# adjust for demographic variables + mod2
+mod3 <- glm(`Disability Status` ~ Year + `Household Family Income` + `Education Level` + Age + Race + Sex, family=binomial(link=logit), # creates log reg model
+           data=cpsdata)
+summary(mod3) 
+
+# adjust for mod3 + region
+mod4 <- glm(`Disability Status` ~ Year + `Household Family Income` + `Education Level` + Age + Race + Sex + `Geographic Region`, family=binomial(link=logit), # creates log reg model
+           data=cpsdata)
+summary(mod4) 
+```
+
+Calculate the odds ratios for each model
+```{r}
+# unadjusted
+clean_model.1 <- tidy(mod1)  # grabs the coefficients from the model
+clean_model.1 <- clean_model.1[-1, ] # remove the intercept
+clean_model.1$odds_ratio <- exp(clean_model.1$estimate) # calculate the odds ratio by exponentiationg
+clean_model.1$lower_CI <- exp(clean_model.1$estimate - 1.96 * clean_model.1$std.error) # calculate the confidence intervals
+clean_model.1$upper_CI <- exp(clean_model.1$estimate + 1.96 * clean_model.1$std.error)
+
+
+# adj model 1
+clean_model.2 <- tidy(mod2)  # grabs the coefficients from the model
+clean_model.2 <- clean_model.2[-1, ] # remove the intercept
+clean_model.2$odds_ratio <- exp(clean_model.2$estimate)
+clean_model.2$lower_CI <- exp(clean_model.2$estimate - 1.96 * clean_model.2$std.error)
+clean_model.2$upper_CI <- exp(clean_model.2$estimate + 1.96 * clean_model.2$std.error)
+
+
+# adj model 2
+clean_model.3 <- tidy(mod3)  # grabs the coefficients from the model
+clean_model.3 <- clean_model.3[-1, ] # remove the intercept
+clean_model.3$odds_ratio <- exp(clean_model.3$estimate)
+clean_model.3$lower_CI <- exp(clean_model.3$estimate - 1.96 * clean_model.3$std.error)
+clean_model.3$upper_CI <- exp(clean_model.3$estimate + 1.96 * clean_model.3$std.error)
+
+
+# adj model 3
+clean_model.4 <- tidy(mod4)  # grabs the coefficients from the model
+clean_model.4 <- clean_model.4[-1, ] # remove the intercept
+clean_model.4$odds_ratio <- exp(clean_model.4$estimate)
+clean_model.4$lower_CI <- exp(clean_model.4$estimate - 1.96 * clean_model.4$std.error)
+clean_model.4$upper_CI <- exp(clean_model.4$estimate + 1.96 * clean_model.4$std.error)
+
+#format to bind
+#or_ci.1 <- paste0(round(clean_model.1$odds_ratio, 2)," [", round(clean_model.1$lower_CI, 2), ", ", round(clean_model.1$upper_CI, 2), "]")
+#or_ci.2 <- paste0(round(clean_model.2$odds_ratio, 2)," [", round(clean_model.2$lower_CI, 2), ", ", round(clean_model.2$upper_CI, 2), "]")
+#or_ci.3 <- paste0(round(clean_model.3$odds_ratio, 2)," [", round(clean_model.3$lower_CI, 2), ", ", round(clean_model.3$upper_CI, 2), "]")
+#or_ci.4 <- paste0(round(clean_model.4$odds_ratio, 2)," [", round(clean_model.4$lower_CI, 2), ", ", round(clean_model.4$upper_CI, 2), "]")
+
+# cleaning the terms for the forest plot later
+unique(clean_model.4$term)
+recodeterms <- c(
+"Year2019" = "2019",
+"Year2021" = "2021",
+"`Household Family Income`.L" = "$5,000 to $9,999",
+"`Household Family Income`.Q" = "$10,000 to $14,999",     
+"`Household Family Income`.C" = "$15,000 to $19,999",
+"`Household Family Income`^4" = "$20,000 to $24,999",  
+"`Household Family Income`^5" = "$25,000 to $29,999",       
+"`Household Family Income`^6" = "$30,000 to $34,999",      
+"`Household Family Income`^7" = "$35,000 to $39,999",       
+"`Household Family Income`^8" = "$40,000 to $49,999",      
+"`Household Family Income`^9" = "$50,000 to $74,999",       
+"`Household Family Income`^10" = "$75,000 to $99,999",      
+"`Household Family Income`^11" = "$100,000 to $149,999",     
+"`Household Family Income`^12" = "$150,000 and Over",    
+"`Education Level`.L" = "9th–12th (No Diploma)",               
+"`Education Level`.Q" = "High School Graduate",              
+"`Education Level`.C" = "Some College, No Degree",               
+"`Education Level`^4" = "Associate's Degree",              
+"`Education Level`^5" = "Bachelor's Degree",               
+"`Education Level`^6" = "Master's Degree",              
+"`Education Level`^7" = "Professional School or Higher",               
+"RaceBlack" = "Black",                         
+"RaceAmerican Indian, Alaskan Native" = "American Indian, Alaskan Native",
+"RaceAsian" = "Asian",                         
+"RaceHawaiian/Pacific Islander" = "Hawaiian/Pacific Islander",    
+"RaceMixed Race" = "Mixed Race",                    
+"SexFemale" = "Female",                       
+"`Geographic Region`Midwest" =  "Midwest",        
+"`Geographic Region`South" =  "South",        
+"`Geographic Region`West" = "West",
+"`Geographic Region`Northeast" = "Northeast"
+)
+
+clean_model.4 <- clean_model.4 %>%
+  mutate(
+    label = ifelse(term %in% names(recodeterms),
+                   recodeterms[term],
+                   term)  # keep original term if no mapping
   )
 
-# Filter to only those with the disability (you can keep "No" if you want comparisons)
-df_long_yes <- df_long %>% filter(Has_Disability == "Yes")
+# check terms again
+clean_model.4$term
+```
 
-# Calculate proportions of employment status by disability type
-plot_data <- df_long_yes %>%
-  group_by(Disability_Type, !!sym(employment_var)) %>%
-  summarise(count = n(), .groups = 'drop') %>%
-  group_by(Disability_Type) %>%
-  mutate(proportion = count / sum(count))
+```{r}
+# unadjusted odds ratios
+estimates <- c(0, -0.048365, -0.102079)
+std_errors <- c(0, 0.013597, 0.013789)
 
-ggplot(plot_data, aes(x = Disability_Type, y = proportion, fill = !!sym(employment_var))) +
-  geom_col(position = "fill") +  # stacked bar plot but subject to change because values are difficult to read
-  scale_y_continuous(labels = scales::percent) +
-  labs(
-    x = "Disability Type",
-    y = "Proportion",
-    fill = "Employment Status",
-    title = "Employment Status by Disability Type, May 2012"
-  ) +
-  scale_fill_manual(values = viridis(n = 3, direction = -1)) +
+or <- exp(estimates)
+#or
+
+# 95% CI
+lower_log <- estimates - 1.96 * std_errors
+upper_log <- estimates + 1.96 * std_errors
+
+# exponentiate the CI
+lower_or <- exp(lower_log)
+upper_or <- exp(upper_log)
+
+# formatting to bind 
+or_ci.1 <- paste0(round(or, 2)," [", round(lower_or, 2), ", ", round(upper_or, 2), "]")
+
+
+# unadjusted odds ratios
+estimates <- c(0, -0.21499, -0.31778)
+std_errors <- c(0, 0.01409, 0.01436)
+
+or <- exp(estimates)
+#or
+
+# 95% CI
+lower_log <- estimates - 1.96 * std_errors
+upper_log <- estimates + 1.96 * std_errors
+
+# exponentiate the CI
+lower_or <- exp(lower_log)
+upper_or <- exp(upper_log)
+
+# formatting to bind 
+or_ci.2 <- paste0(round(or, 2)," [", round(lower_or, 2), ", ", round(upper_or, 2), "]")
+
+# adjusted odds ratios 2
+estimates <- c(0, -0.1077948, -0.1788497)
+std_errors <- c(0, 0.0148942, 0.0151738)
+
+or <- exp(estimates)
+#or
+
+# 95% CI
+lower_log <- estimates - 1.96 * std_errors
+upper_log <- estimates + 1.96 * std_errors
+
+# exponentiate the CI
+lower_or <- exp(lower_log)
+upper_or <- exp(upper_log)
+
+# formatting to bind 
+or_ci.3 <- paste0(round(or, 2)," [", round(lower_or, 2), ", ", round(upper_or, 2), "]")
+
+# adjusted odds ratios 3
+estimates <- c(0, -0.1067441, -0.1775710)
+std_errors <- c(0, 0.0149373, 0.0152186)
+
+or <- exp(estimates)
+#or
+
+# 95% CI
+lower_log <- estimates - 1.96 * std_errors
+upper_log <- estimates + 1.96 * std_errors
+
+# exponentiate the CI
+lower_or <- exp(lower_log)
+upper_or <- exp(upper_log)
+
+# formatting to bind 
+or_ci.4 <- paste0(round(or, 2)," [", round(lower_or, 2), ", ", round(upper_or, 2), "]")
+
+# I manually calculated this before I knew I could extract the variables in a more efficient manner. I was having some trouble with formatting the extracted variables from the model, so I used the calculated values for the table. They should be the same values.
+```
+
+#### Displaying the calculated odds ratios in a table
+```{r}
+# bind the odds ratio columns
+tsORtable <- cbind(`Year` = c("2012 (ref)","2019", "2021"), `Odds Ratio [95% CI]` = or_ci.1, `Odds Ratio [95% CI]` = or_ci.2, `Odds Ratio [95% CI]` = or_ci.3, `Odds Ratio [95% CI]` = or_ci.4)
+tsORtable <- as.data.frame(tsORtable)
+
+kable(tsORtable, row.names = FALSE, caption = "TABLE 2. Logistic regression analyses of disability status by year", format = "html", booktabs = F,escape = F) %>%
+   add_header_above(c(" " = 1, "Crude" = 1,"Model 1" = 1, "Model 2" = 1, "Model 3" = 1)) %>%
+  footnote("Odds ratios and 95% confidence intervals were calculated using logistic regression modeling.
+           Model 1: Adjusted for household family income and education level.
+           Model 2: Adjusted for Model 1 plus age, race, and sex.
+           Model 3: Adjusted for Model 2 plus region.") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = F,
+    position = "left"
+  ) %>%
+  row_spec(0, bold = TRUE, background = "#f7f7f7")  # resembles the tables from the table 1 package
+```
+
+#### Plotting the odds ratios by predictor
+```{r}
+summ(mod1)
+summ(mod2)
+summ(mod3)
+summ(mod4)
+# model 4 has the best model fit
+
+# I was going to use jtools summ_plot() to make a forest plot, but I didn't like how it looked and it was taking too long with the fully adjusted model.
+
+# The base code for this plot was taken from here: https://ujangriswanto08.medium.com/a-beginners-guide-to-multivariate-logistic-regression-in-r-9aa3b763f564
+# I modified it so it's easier to read and so that the predictor variables are in order
+ggplot(clean_model.4, aes(x = factor(label, levels = rev(unique(label))), y = odds_ratio)) +
+  geom_point(size = 1, color = "blue") +
+  geom_errorbar(aes(ymin = exp(estimate - std.error), ymax = exp(estimate + std.error)), width = 0.2) + # adding in the confidence intervals using the error bar option
+  labs(title = "Odds Ratios of Predictor Variables", x = "Predictor Variables", y = "Odds Ratio") + # adding axis labels
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +  # reference line for the null
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  coord_flip() +  # flip for better readability
+    theme(
+      plot.title = element_text(face = "bold", size = 14),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      legend.text = element_text(size = 10),
+      axis.text.x = element_text(size = 10, hjust = 1),
+      axis.text.y = element_text(size = 10),
+      axis.title.x = element_text(face = "bold", size = 11),
+      axis.title.y = element_text(face = "bold", size = 11),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      plot.caption = element_text(hjust = 0, size = 8, color = "gray40")
+    )
+```
+
+# Displaying the predictors' odds ratios in a table
+```{r}
+table_data <- clean_model.4 %>%
+  mutate(
+    or_ci = paste0(round(odds_ratio, 2), " [", round(lower_CI, 2), ", ", round(upper_CI, 2), "]"),
+    p.value.fmt = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value)),
+    label = gsub("\\$", "USD ", label) # replacing the $ with USD since it was affecting the font
+  ) %>%
+  select(label, or_ci, p.value.fmt) %>%
+  arrange(factor(label, levels = unique(label)))
+
+kable(table_data, col.names = c("Predictor", "Odds Ratio [95% CI]", "p-value"), 
+      booktabs = TRUE, escape = FALSE,
+      caption = "Odds Ratios and p-values for Predictor Variables") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  row_spec(0, bold = TRUE, background = "#f7f7f7")
 ```
 
